@@ -1,0 +1,15 @@
+# One-click hosting on Render (https://render.com): New + > Blueprint > pick this repository.
+# Gives the web game a permanent https link. The free plan sleeps after ~15 min idle
+# (first visit then takes ~1 minute to wake up).
+services:
+  - type: web
+    name: neon-arena-blackout
+    runtime: node
+    rootDir: web
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

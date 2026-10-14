@@ -1,1 +1,8 @@
 node_modules/
+.DS_Store
+# Unreal (if a Lyra project is ever placed under unreal/)
+unreal/**/Binaries/
+unreal/**/Intermediate/
+unreal/**/Saved/
+unreal/**/DerivedDataCache/
+unreal/**/.vs/
