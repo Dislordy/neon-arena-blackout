@@ -35,6 +35,14 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' }, maxHttpBufferSize: 16 * 1024 });
 
+// Log page loads (not every asset) so hosting problems are easy to diagnose in the host's logs.
+app.use((req, res, next) => {
+  if (req.path === '/') { // not /health: the host polls that every few seconds
+    const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim().replace(/\.\d+$/, '.x');
+    console.log(`[http] ${req.method} ${req.path} from ${ip} (${String(req.headers['user-agent'] || '').slice(0, 40)})`);
+  }
+  next();
+});
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
 app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules', 'three')));
@@ -270,6 +278,8 @@ function sanitizeInput(raw) {
 // ------------------------------------------------------------ sockets
 io.on('connection', socket => {
   let roomCode = null;
+  console.log(`[socket] player connected (${io.engine.clientsCount} online)`);
+  socket.on('disconnect', () => console.log(`[socket] player left (${io.engine.clientsCount} online)`));
   const getRoom = () => rooms.get(roomCode);
   const getMe = () => { const r = getRoom(); return r && r.players.get(socket.id); };
 
