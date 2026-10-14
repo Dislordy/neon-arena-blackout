@@ -24,7 +24,8 @@ Details: `CHANGELOG.md`.
 ## About the developer and how to work with them
 - They are a **beginner** (with Unreal especially) and play/test on a **Chromebook** (Linux terminal, Chrome). Explain changes in plain language.
 - Prefer giving exact commands / click-by-click steps. Keep the game runnable on low-end hardware (Low preset must stay smooth).
-- Web game: friends join via a public link (Render deploy, or `ngrok http 3000` from the Chromebook).
+- Web game: friends join via the public link **https://neon-arena-blackout.onrender.com** (Render free plan, auto-deploys
+  from `main` via the `render.yaml` Blueprint; first load after idle takes ~1 min). Fallback: `ngrok http 3000` from the Chromebook.
 - They like the look of **Cyberpunk 2077 + Dark Souls 3**, but all brands/slogans must be **original** — never copy real game brands, logos or characters.
 - Unreal track rules:
   - Claude **cannot edit Blueprints or `.umap`/`.uasset` files**. Use **Unreal Python scripts** (`unreal/kit/Tools/NeonArena/*.py`) or **exact click-by-click instructions**.

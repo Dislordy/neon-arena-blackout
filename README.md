@@ -1,5 +1,7 @@
 # NEON ARENA: BLACKOUT — V4 · Build 4
 
+**▶ Play now: https://neon-arena-blackout.onrender.com** (free hosting — if nobody has played for a while, the first load takes about a minute)
+
 A cyberpunk multiplayer FPS: rain-soaked neon megacity, wet reflective streets, fog, cyber-knight runners
 and punchy energy-rifle gunplay.
 
