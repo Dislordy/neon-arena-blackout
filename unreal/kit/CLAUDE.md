@@ -83,6 +83,10 @@ V2 uses **meters, Y-up**; Unreal uses **centimeters, Z-up**. Conversion: `UE_X =
 | Assassin | 85 | 6.7 m/s | 3 charges, each refills in 2.8 s, 0.27 s between dashes | Longwire sniper (V4.7): 5 rounds, 1.1 s bolt cycle, 2.1 s reload, 150 head / 80 body / 60 legs, no falloff, 0.05 rad hip spread, exact when scoped. 5 kills in a row → Obliteration Beam: 1.6 s charge (30% move speed), 14 m-wide beam, 140 m, through walls, kills; the half of the map it fired into burns 15 s at 20 dps below 1.5 m height |
 | Knight | 130 | 6.0 m/s | 1 charge, 5 s | Greatsword: 60 dmg, 0.55 s swing, 2.7 m reach, ~40° cone, small lunge. Every kill turns it into a shotgun: 6 shells, 8 pellets, 0.065 rad spread, 13/20/10 dmg per pellet (body/head/legs), full to 8 m then down to 25% at 25 m, 0.8 s pump; folds back into the sword when empty |
 
+Beam Clash (V4.8): a beam fired at a player who is charging/holding theirs and aiming back starts a clash —
+both locked 7.1 s (1.2 s intro cutscene, 5 s duel, 0.9 s outro), same random 60-key W/A/S/D sequence, wrong key = 0.3 s stun,
+max 20 presses/s; most correct keys wins and their beam fires through the loser; tie = both die.
+
 Everyone has a 50-point energy shield that takes damage before health and refills at 25/s after 3.5 s without damage.
 
 ### Look

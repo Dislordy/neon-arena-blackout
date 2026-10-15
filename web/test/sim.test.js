@@ -241,4 +241,12 @@ test('beam path and the burning half of the alley', () => {
   assert.ok(!Sim.inFireZone(zone, { x: 15, y: Sim.CATWALK_TOP, z: 20 }), 'fire escapes are safe');
 });
 
+test('beam clash lock freezes you (look only) until it runs out', () => {
+  const p = Sim.newPlayerState(-12, -24, 1); p.lock = 30; p.ult = 0;
+  run(p, input({ mz: 1, yaw: 0.7, b: Sim.BTN.FIRE | Sim.BTN.DASH | Sim.BTN.JUMP }), 30);
+  assert.strictEqual(p.z, -24); assert.strictEqual(p.ammo, Sim.SNIPER_MAG); assert.ok(Math.abs(p.yaw - 0.7) < 1e-9);
+  run(p, input({ mz: 1 }), 30);
+  assert.ok(p.z < -24.5, 'moves again after the lock');
+});
+
 console.log(`sim: ${passed} passed`);

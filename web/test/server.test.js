@@ -234,6 +234,41 @@ async function test(name, fn) {
     assert.strictEqual(pa.hp, 85);
   });
 
+  await test('beam clash: beams meet, W/A/S/D duel, the faster one wins and obliterates the other', async () => {
+    let start = null, end = null;
+    a.sock.once('clashStart', c => { start = c; }); a.sock.once('clashEnd', e => { end = e; });
+    room.fireZone = null;
+    await b.stream(170, {}); // let B respawn if needed
+    place(pa, 0, -20, Math.PI, 1); place(pb, 0, 20, 0, 1);  // facing each other down the alley
+    pa.sim.ult = 1; pb.sim.ult = 1;
+    await wait(80);
+    a.send(1, { yaw: Math.PI, b: Sim.BTN.FIRE }); b.send(1, { yaw: 0, b: Sim.BTN.FIRE });
+    const both = (n) => Promise.all([a.stream(n, { yaw: Math.PI }), b.stream(n, { yaw: 0 })]);
+    await both(Sim.ULT_CHARGE_TICKS + 12);
+    await wait(100);
+    assert.ok(start, 'clash started');
+    assert.ok(pa.sim.alive && pb.sim.alive, 'nobody died yet');
+    assert.ok(pa.sim.lock > 0 && pb.sim.lock > 0, 'both locked in the cutscene');
+    await wait(start.intro + 50);
+    // A hits the sequence, B mashes wrong keys
+    let ia = 0;
+    const t0 = Date.now();
+    const keys = setInterval(() => {
+      a.sock.emit('clashKey', { k: start.seq[ia++] });
+      b.sock.emit('clashKey', { k: Sim.CLASH_KEYS.find(k => k !== start.seq[0]) });
+    }, 70);
+    while (Date.now() - t0 < start.qte + 200) await both(6);
+    clearInterval(keys);
+    await both(30); await wait(150);
+    assert.ok(end, 'clash ended');
+    assert.strictEqual(end.winner, a.sock.id);
+    assert.ok(end.p[0] > 30 && end.p[1] <= 1, 'progress ' + end.p);
+    assert.ok(!pb.sim.alive, 'loser obliterated');
+    assert.ok(pa.sim.alive, 'winner survives');
+    assert.ok(room.fireZone && room.fireZone.by === a.sock.id, 'winner\'s beam set the alley on fire');
+    assert.strictEqual(room.clash, null);
+  });
+
   a.sock.close(); b.sock.close();
   console.log(`server: ${passed} passed`);
   setTimeout(() => process.exit(process.exitCode || 0), 50);

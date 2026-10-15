@@ -83,6 +83,13 @@
   const FIRE_ZONE_MS = 15000;          // the half of the alley the beam went into burns this long
   const FIRE_DPS = 20;
   const FIRE_HEIGHT = 1.5;             // standing above this (fire escapes, bridges) keeps you out of the flames
+  // Beam clash: two beams meet -> quick cutscene + W/A/S/D quick-time duel
+  const CLASH_INTRO_MS = 1200;         // cutscene intro before keys count
+  const CLASH_QTE_MS = 5000;           // time to hit as many keys of the sequence as you can
+  const CLASH_OUTRO_MS = 900;
+  const CLASH_MISS_MS = 300;           // wrong key: stunned this long
+  const CLASH_SEQ = 60;                // sequence length (more than anyone can hit in 5 s)
+  const CLASH_KEYS = ['w', 'a', 's', 'd'];
 
   // ---------------------------------------------------------------- map size
   // V4.6 "The Alley": a long back-alley between two run-down megablocks.
@@ -216,11 +223,11 @@
     return {
       x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, og: true, alive: true,
       cls: C.id, dashT: 0, dashCd: 0, dashN: C.dashes, dashGap: 0, ddx: 0, ddz: 0,
-      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0
+      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0, lock: 0
     };
   }
   function magOf(weapon) { return weapon === WEAPON.RIFLE ? MAG_SIZE : weapon === WEAPON.SNIPER ? SNIPER_MAG : weapon === WEAPON.SHOTGUN ? SHOTGUN_SHELLS : 0; }
-  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT'];
+  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT', 'lock'];
   /** Which weapon is in this player's hands right now. */
   function weaponOf(p) { const C = classOf(p); return C.weapon === WEAPON.SWORD && p.wpn === 1 ? WEAPON.SHOTGUN : C.weapon; }
   /** Knight kill reward: the sword transforms into a loaded shotgun (a kill while holding it reloads it). */
@@ -296,6 +303,8 @@
     if (Number.isFinite(yaw)) p.yaw = ((yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     if (Number.isFinite(pitch)) p.pitch = clamp(pitch, -1.45, 1.45);
     if (!p.alive) return ev;
+    // locked in a beam clash: you can look around, nothing else
+    if (p.lock > 0) { p.lock--; p.vx = p.vz = 0; p.dashT = 0; return ev; }
     const b = input.b | 0;
 
     const C = classOf(p), weapon = weaponOf(p);
@@ -556,6 +565,7 @@
     CLASSES, WEAPON, classOf, weaponOf, grantShotgun, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_PER_S,
     SWORD_TICKS, SWORD_RANGE, SWORD_DAMAGE, SHOTGUN_SHELLS, SHOTGUN_TICKS, SHOTGUN_PELLETS, SHOTGUN_RANGE, TRANSFORM_TICKS,
     pelletDirs, swordReach, magOf, sniperDir, beamAxis, inBeam, fireZoneFor, inFireZone,
+    CLASH_INTRO_MS, CLASH_QTE_MS, CLASH_OUTRO_MS, CLASH_MISS_MS, CLASH_SEQ, CLASH_KEYS,
     SNIPER_MAG, SNIPER_TICKS, SNIPER_RELOAD_TICKS, SNIPER_RANGE, ULT_STREAK, ULT_CHARGE_TICKS, BEAM_RADIUS, BEAM_LENGTH,
     FIRE_ZONE_MS, FIRE_DPS, FIRE_HEIGHT,
     HALF_X, HALF_Z, FACADE_HEIGHT, ALCOVE_DEPTH, CATWALK_TOP, boxes, spawns,

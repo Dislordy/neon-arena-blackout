@@ -1,5 +1,14 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.8 — Beam Clash
+- Fire your Obliteration Beam at someone who is charging (or holding) theirs and aiming back, and the beams
+  **clash**: a quick cutscene (black bars, side-on camera, "BEAM CLASH", both players shout a line) and then a
+  5-second **W/A/S/D duel** — both get the same random key sequence; every correct key pushes the clash point
+  towards your rival, a wrong key stuns you for 0.3 s. Arrow keys work too; phones get four on-screen buttons.
+- Most correct keys wins: the winner's beam overpowers the other, obliterates the loser and carries on down the
+  alley (the half it goes into burns as usual). A perfect tie detonates both beams — double obliteration.
+- Everyone else watches the two beams grind against each other in the alley. The server checks every key press.
+
 ## V4.7 — Longwire & the Obliteration Beam
 - Assassin now carries the **Longwire sniper rifle**: 5-round bolt action (1.1 s between shots, 2.1 s reload),
   150 headshot (one-shot kill) / 80 body / 60 legs, no damage falloff. Scope with right-click (or ADS on phones):

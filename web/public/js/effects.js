@@ -241,6 +241,34 @@ export class Effects {
     this.ring(origin, 0x8fa8ff, radius * 2.5, 0.9);
     for (let i = 0; i < 6; i++) this.flashLight(_v.set(origin.x + axis.x * i * 12, 2, origin.z + axis.z * i * 12), 0xbfd0ff, 140, 0.6);
   }
+  /** Remove beams still on screen (a clash takes over). */
+  clearBeams() { if (this.beams) for (const B of this.beams) B.t = Math.max(B.t, 1.4); }
+  /**
+   * Beam clash: two beams pushing against each other with a blinding flare where they meet.
+   * Returns { update(point, k), end(side) } — side 0/1 = which beam won, 'tie' = both detonate.
+   */
+  beamClash(oa, ob) {
+    if (!this.beamMat) this.beamMat = beamMaterial();
+    const geo = new THREE.CylinderGeometry(1, 1, 1, 40, 1, true); geo.translate(0, 0.5, 0); geo.rotateX(Math.PI / 2);
+    const tints = [new THREE.Color(0.25, 0.42, 1.4), new THREE.Color(1.1, 0.3, 1.3)];
+    const side = (o, i) => {
+      const g = new THREE.Group(); g.position.copy(o); this.scene.add(g);
+      const core = new THREE.Mesh(geo, this.beamMat.clone()); core.material.uniforms.core.value = 1;
+      const shell = new THREE.Mesh(geo, this.beamMat.clone()); shell.material.uniforms.tint.value = tints[i];
+      // drawn on top of everything: the clash is the star of the cutscene, even behind the bus
+      for (const m of [core, shell]) { m.frustumCulled = false; m.renderOrder = 14; m.material.depthTest = false; g.add(m); }
+      return { g, core, shell, o: o.clone() };
+    };
+    const S = [side(oa, 0), side(ob, 1)];
+    const flare = new THREE.Sprite(new THREE.SpriteMaterial({ map: TX.radialSprite(128, 0, 2.6), color: new THREE.Color(2.2, 2.2, 2.6), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, fog: false }));
+    flare.renderOrder = 15; this.scene.add(flare);
+    const C = { S, flare, point: oa.clone().lerp(ob, 0.5), k: 1, t: 0, ending: -1, winner: null };
+    C.update = (point, k) => { C.point.copy(point); C.k = k; };
+    C.end = (w) => { C.ending = 0; C.winner = w; };
+    (this.clashes || (this.clashes = [])).push(C);
+    return C;
+  }
+
   /** Charred ground over the burning half of the alley. zone = { axis, sign } */
   scorch(zone, seconds) {
     if (!this.scorchTex) this.scorchTex = scorchTexture();
@@ -497,6 +525,42 @@ export class Effects {
       }
       if (B.t > 1.6) { this.scene.remove(B.g); B.core.material.dispose(); B.shell.material.dispose(); this.beams.splice(i, 1); }
     }
+    if (this.clashes) for (let i = this.clashes.length - 1; i >= 0; i--) {
+      const C = this.clashes[i]; C.t += dt;
+      let a = 1, p = C.point;
+      if (C.ending >= 0) {
+        C.ending += dt;
+        if (C.winner === 'tie') a = Math.max(0, 1 - C.ending / 0.5);
+        else { // the winning beam punches through to the loser
+          const target = C.S[1 - C.winner].o; p = C.point.lerp(target, Math.min(1, dt * 6));
+          if (C.ending > 0.35) a = Math.max(0, 1 - (C.ending - 0.35) / 0.4);
+        }
+      }
+      C.S.forEach((B, j) => {
+        const to = (C.ending >= 0 && C.winner === j) ? C.S[1 - j].o : p, len = Math.max(0.5, B.o.distanceTo(to));
+        B.g.lookAt(to.x, B.o.y, to.z);
+        const lose = C.ending >= 0 && C.winner !== 'tie' && C.winner !== j ? Math.max(0, 1 - C.ending * 4) : 1;
+        const wob = 1 + Math.sin(this.time * 40 + j) * 0.06;
+        B.core.scale.set(0.7 * wob, 0.7 * wob, len); B.shell.scale.set(2.4 * wob, 2.0 * wob, len);
+        B.core.material.uniforms.alpha.value = a * lose * 0.8; B.shell.material.uniforms.alpha.value = a * lose * 0.6;
+        for (const m of [B.core, B.shell]) m.material.uniforms.time.value = this.time;
+      });
+      // the meeting point: a pulsing star of light throwing sparks and shockwave rings
+      C.flare.position.copy(p); C.flare.scale.setScalar((4.4 + Math.sin(this.time * 30) * 0.8 + C.k * 2) * (C.ending >= 0 && C.winner === 'tie' ? 1 + C.ending * 8 : 1));
+      C.flare.material.opacity = a * 0.8;
+      if (a > 0.2) {
+        for (let n = 0; n < 14; n++) {
+          const th = Math.random() * 6.283, ph = Math.random() * 3.14, sp = 6 + Math.random() * 14;
+          this.glow.spawn(p.x, p.y, p.z, Math.cos(th) * Math.sin(ph) * sp, Math.cos(ph) * sp * 0.6, Math.sin(th) * Math.sin(ph) * sp, { life: 0.4 + Math.random() * 0.3, size: 0.12, endSize: 0, color: Math.random() < 0.5 ? [1.2, 1.5, 3] : [2.4, 0.8, 2.6], drag: 2 });
+        }
+        if (Math.random() < 0.08) this.ring(p, 0xcfd8ff, 9, 0.5);
+        if (Math.random() < 0.4) this.flashLight(p, 0xcfd8ff, 45, 0.12);
+      }
+      if (C.ending > 0.9 || C.t > 12) {
+        for (const B of C.S) { this.scene.remove(B.g); B.core.material.dispose(); B.shell.material.dispose(); }
+        this.scene.remove(C.flare); C.flare.material.dispose(); this.clashes.splice(i, 1);
+      }
+    }
     if (this.scorches) for (let i = this.scorches.length - 1; i >= 0; i--) {
       const S = this.scorches[i]; S.t += dt;
       S.m.material.opacity = Math.min(0.85, S.t * 2) * Math.min(1, Math.max(0, (S.life - S.t) / 4));
@@ -544,9 +608,9 @@ function runeCircleTextures() {
 }
 function beamMaterial() {
   return new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, alpha: { value: 1 }, core: { value: 0 } },
+    uniforms: { time: { value: 0 }, alpha: { value: 1 }, core: { value: 0 }, tint: { value: new THREE.Color(0.25, 0.4, 1.3) } },
     vertexShader: `varying vec3 vN; varying vec3 vV; varying vec2 vUv; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position,1.0); vV = -mv.xyz; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv; }`,
-    fragmentShader: `uniform float time; uniform float alpha; uniform float core; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+    fragmentShader: `uniform float time; uniform float alpha; uniform float core; uniform vec3 tint; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
       float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
       float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
       void main(){
@@ -555,7 +619,7 @@ function beamMaterial() {
         float tip = smoothstep(0.0, 0.01, vUv.y) * (1.0 - smoothstep(0.92, 1.0, vUv.y));
         // fade surfaces right next to the camera so standing beside (or inside) the beam isn't a white wall
         float near = smoothstep(1.5, 12.0, length(vV));
-        vec3 col = mix(vec3(0.25, 0.4, 1.3), vec3(1.6, 1.75, 2.1), core);
+        vec3 col = mix(tint, vec3(1.6, 1.75, 2.1), core);
         float a = facing * (0.35 + flow * 0.65) * tip * alpha * near * (core > 0.5 ? 1.1 : 0.32);
         gl_FragColor = vec4(col * a, 1.0);
       }`,

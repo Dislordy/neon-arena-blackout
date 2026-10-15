@@ -338,6 +338,30 @@ const designs = {
     [523, 659, 784, 1047].forEach((f, i) => mixInto(out, env(partials(Math.round(sr * 0.9), sr, [f, f * 2, f * 3.01], [3, 5, 8], [1, 0.3, 0.15]), sr, t => Math.min(1, t * 80)), 0.5, Math.round(sr * i * 0.09)));
     return fadeEdges(normalize(out, 0.6), sr);
   },
+  /** Two beams grinding against each other (loop): roaring plasma, a straining drone, crackle. */
+  clashLoop(sr) {
+    const n = Math.round(sr * 3);
+    const ch = seed => {
+      const c = lp(lp(noise(n, seed), 1800, sr), 2200, sr);
+      mixInto(c, lp(lp(noise(n, seed + 1), 120, sr), 120, sr), 5);
+      for (const f of [55, 82.5, 110, 165]) { let ph = 0; for (let i = 0; i < n; i++) { ph += TAU * f * (1 + 0.01 * Math.sin(i / sr * 7 + f)) / sr; c[i] += Math.sin(ph) * 0.12 * (1 + 0.3 * Math.sin(i / sr * 13)); } }
+      let s2 = seed * 7 + 1;
+      for (let k = 0; k < 220; k++) { s2 = (s2 * 16807) % 2147483647; const len = Math.round(sr * 0.003), at = s2 % (n - len); mixInto(c, env(hp(noise(len, s2 % 991), 3000, sr), sr, t => Math.exp(-t * 900)), 0.5, at); }
+      return loopable(normalize(c, 0.7), sr);
+    };
+    return { L: ch(700), R: ch(701) };
+  },
+  /** Quick-time hit: bright, short. */
+  qteHit(sr) {
+    const n = Math.round(sr * 0.12);
+    return fadeEdges(normalize(partials(n, sr, [1760, 2640, 3520], [30, 40, 55], [1, 0.5, 0.25]), 0.6), sr);
+  },
+  /** Quick-time miss: a harsh buzz. */
+  qteMiss(sr) {
+    const n = Math.round(sr * 0.3), out = sweepSine(n, sr, 160, 90, 8, { shape: 'saw' });
+    mixInto(out, sweepSine(n, sr, 167, 95, 8, { shape: 'saw' }), 0.8);
+    return fadeEdges(normalize(lp(out, 1800, sr), 0.6), sr);
+  },
   /** Bullet absorbed by an energy shield: soft electric thud. */
   shieldHit(sr) {
     const n = Math.round(sr * 0.16), out = sweepSine(n, sr, 900, 300, 30, { k: 1.2 });

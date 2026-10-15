@@ -120,6 +120,24 @@
   <button id="goLandscape">Go fullscreen</button>
 </div>
 
+<!-- BEAM CLASH cutscene + quick-time duel -->
+<div id="clash" class="clash hidden">
+  <div class="cbar top"></div><div class="cbar bottom"></div>
+  <div class="clashHead"><div class="clashTitle">BEAM CLASH</div>
+    <div class="clashVs"><span id="clashA" class="who a"></span><b>VS</b><span id="clashB" class="who b"></span></div></div>
+  <div id="clashShout" class="clashShout"></div>
+  <div id="clashQte" class="clashQte hidden">
+    <div id="clashKeys" class="clashKeys"></div>
+    <div class="clashMeter"><i id="clashMeterA"></i><span id="clashScore">0 : 0</span><i id="clashMeterB"></i></div>
+    <div class="clashTimer"><i id="clashTimer"></i></div>
+    <div class="clashHint">PRESS THE KEYS IN ORDER · WRONG KEY = STUNNED</div>
+  </div>
+  <div id="clashPad" class="clashPad">
+    <button data-k="w">▲<small>W</small></button><button data-k="a">◀<small>A</small></button><button data-k="s">▼<small>S</small></button><button data-k="d">▶<small>D</small></button>
+  </div>
+  <div id="clashResult" class="clashResult"></div>
+</div>
+
 <!-- IN-GAME MENU (the match keeps running while it is open) -->
 <div id="gameMenu" class="modalOverlay gameMenu hidden">
   <div class="panel">
