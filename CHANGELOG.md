@@ -1,5 +1,10 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.4 — In-game menu
+- ☰ menu button next to the timer (phones and desktop; Esc also opens it on desktop): Resume, Sound on/off
+  with a volume slider (remembered between visits, M toggles sound), Scoreboard, and Exit match
+  (needs a second tap so a stray thumb can't throw you out). The match keeps running while it is open.
+
 ## V4.3 — Mobile
 - Landscape play: tapping Create/Join on a phone goes fullscreen and locks the screen sideways (Android Chrome);
   phones held upright see a "Rotate your phone" screen. Web app manifest (landscape, fullscreen) for Add to Home Screen.

@@ -278,7 +278,7 @@ const MIX = { ambience: 0.42, sfx: 1.0, ui: 0.85, reverb: 0.28 };
 const VARIANTS = { shot: 4, shotFar: 2, step: 6 };
 
 export class AudioEngine {
-  constructor() { this.ctx = null; this.buffers = {}; this.voices = 0; this.enabled = false; this.volume = 0.8; }
+  constructor() { this.ctx = null; this.buffers = {}; this.voices = 0; this.enabled = false; this.volume = 0.8; this.muted = false; }
 
   /** Create the audio graph. `customCtx` (e.g. an OfflineAudioContext) is used for offline previews/tests. */
   init(customCtx) {
@@ -291,7 +291,7 @@ export class AudioEngine {
     // master -> brick-wall limiter -> speakers
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -1.5; this.limiter.knee.value = 0; this.limiter.ratio.value = 20; this.limiter.attack.value = 0.001; this.limiter.release.value = 0.12;
-    this.master = gain(this.volume); this.master.connect(this.limiter); this.limiter.connect(ctx.destination);
+    this.master = gain(this.muted ? 0 : this.volume); this.master.connect(this.limiter); this.limiter.connect(ctx.destination);
     // action bus (guns, movement, impacts) with its own gentle glue compressor
     const glue = ctx.createDynamicsCompressor(); glue.threshold.value = -10; glue.knee.value = 6; glue.ratio.value = 3; glue.attack.value = 0.003; glue.release.value = 0.18;
     this.sfx = gain(MIX.sfx); this.sfx.connect(glue); glue.connect(this.master);
@@ -354,7 +354,9 @@ export class AudioEngine {
     if (stereo) { b.copyToChannel(data.L, 0); b.copyToChannel(data.R, 1); } else b.copyToChannel(data, 0);
     return b;
   }
-  setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
+  setVolume(v) { this.volume = v; this.applyLevel(); }
+  setMuted(m) { this.muted = !!m; this.applyLevel(); }
+  applyLevel() { if (this.master) this.master.gain.setTargetAtTime(this.muted ? 0 : this.volume, this.ctx.currentTime, 0.02); }
 
   /** Briefly lower the ambience (rain/hum) so the action cuts through, then let it swell back. */
   duck(depth = 0.35, hold = 0.15) {

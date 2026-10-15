@@ -28,13 +28,24 @@ const Q = PRESETS[qualityName] || PRESETS.high;
 let sensitivity = store.get('sens', 1);
 const audio = new AudioEngine();
 audio.volume = store.get('vol', 0.8);
+audio.muted = store.get('muted', false);
 
 $('qualitySel').value = qualityName;
 $('qualitySel').onchange = e => { store.set('quality', e.target.value); location.reload(); };
 $('sensRange').value = sensitivity;
 $('sensRange').oninput = e => { sensitivity = Number(e.target.value); store.set('sens', sensitivity); };
 $('volRange').value = audio.volume;
-$('volRange').oninput = e => { audio.setVolume(Number(e.target.value)); store.set('vol', Number(e.target.value)); };
+$('volRange').oninput = e => setVolume(Number(e.target.value));
+function setVolume(v) {
+  audio.setVolume(v); store.set('vol', v); $('volRange').value = $('menuVol').value = v;
+  if (v > 0 && audio.muted) setMuted(false);
+}
+function setMuted(m) {
+  audio.setMuted(m); store.set('muted', m);
+  $('soundBtn').classList.toggle('off', m); $('soundBtn').setAttribute('aria-pressed', String(!m));
+  $('soundLabel').textContent = m ? 'Sound: off' : 'Sound: on';
+}
+$('menuVol').value = audio.volume; setMuted(audio.muted);
 
 // ------------------------------------------------------------------ renderer & scene
 installHeightFog();
@@ -86,12 +97,18 @@ document.addEventListener('keydown', e => {
   if (e.code === 'KeyE') ability('scan');
   if (e.code === 'KeyF' && weapon) weapon.inspect();
   if (e.code === 'Tab') $('scoreboard').classList.remove('hidden');
+  if (e.code === 'KeyM') setMuted(!audio.muted);
+  if (e.code === 'Escape' && menuOpen) closeMenu();
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Tab') $('scoreboard').classList.add('hidden'); });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; mouseDown = aimDown = false; });
 renderer.domElement.addEventListener('click', () => { if (phase === 'playing' && !isTouch && renderer.domElement.requestPointerLock) renderer.domElement.requestPointerLock(); });
 let skipMouse = 0;
-document.addEventListener('pointerlockchange', () => { pointerLocked = document.pointerLockElement === renderer.domElement; skipMouse = 2; if (!pointerLocked) mouseDown = aimDown = false; });
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = document.pointerLockElement === renderer.domElement; skipMouse = 2;
+  if (!pointerLocked) { mouseDown = aimDown = false; if (phase === 'playing' && !menuClosing) openMenu(); }
+  menuClosing = false;
+});
 document.addEventListener('mousemove', e => {
   if (!pointerLocked || phase !== 'playing') return;
   // Browsers can report a huge bogus delta right after the pointer locks; drop it.
@@ -120,14 +137,48 @@ const touch = new TouchControls({
   onReload: () => { reloadQueued = true; },
   onDash: () => { dashQueued = true; },
   onAbility: type => ability(type),
-  onScores: () => $('scoreboard').classList.toggle('hidden')
 });
 if (isTouch) {
   // landscape + fullscreen on the first tap of a menu button (browsers only allow this after a tap)
   for (const id of ['createBtn', 'joinBtn', 'startBtn']) $(id).addEventListener('click', () => goLandscape());
-  $('scoreboard').addEventListener('pointerdown', () => $('scoreboard').classList.add('hidden'));
 }
 $('goLandscape').addEventListener('click', () => goLandscape());
+
+// ------------------------------------------------------------------ in-game menu (☰ / Esc)
+let menuOpen = false, menuClosing = false, exitArmed = 0;
+function openMenu() {
+  if (phase !== 'playing' || menuOpen) return;
+  menuOpen = true; touch.release(); mouseDown = aimDown = false;
+  for (const k in keys) keys[k] = false;
+  $('menuRoom').textContent = roomCode || '------'; disarmExit();
+  $('gameMenu').classList.remove('hidden'); $('mobileControls').classList.add('off');
+  if (document.pointerLockElement) { menuClosing = true; document.exitPointerLock(); }
+}
+function closeMenu(relock) {
+  if (!menuOpen) return;
+  menuOpen = false; disarmExit();
+  $('gameMenu').classList.add('hidden'); $('scoreboard').classList.add('hidden'); $('scoreboard').classList.remove('tapClose');
+  $('mobileControls').classList.toggle('off', phase !== 'playing');
+  if (relock && phase === 'playing' && !isTouch && renderer.domElement.requestPointerLock) renderer.domElement.requestPointerLock();
+}
+function disarmExit() { exitArmed = 0; $('exitBtn').classList.remove('confirm'); $('exitBtn').textContent = 'Exit match'; }
+$('menuBtn').addEventListener('click', e => { e.stopPropagation(); openMenu(); });
+$('menuBtn').addEventListener('pointerdown', e => e.stopPropagation());
+$('resumeBtn').onclick = () => closeMenu(true);
+$('soundBtn').onclick = () => { audio.init(); setMuted(!audio.muted); };
+$('menuVol').oninput = e => setVolume(Number(e.target.value));
+// scoreboard from the menu: swap the menu out, any tap/click brings it back
+$('menuScoresBtn').onclick = () => { $('gameMenu').classList.add('hidden'); $('scoreboard').classList.remove('hidden'); $('scoreboard').classList.add('tapClose'); };
+$('scoreboard').addEventListener('pointerdown', e => {
+  e.stopPropagation(); $('scoreboard').classList.add('hidden'); $('scoreboard').classList.remove('tapClose');
+  if (menuOpen) $('gameMenu').classList.remove('hidden');
+});
+// exit needs two taps so a stray thumb can't throw you out of a match
+$('exitBtn').onclick = () => {
+  if (performance.now() - exitArmed < 3000) return leave();
+  exitArmed = performance.now(); $('exitBtn').classList.add('confirm'); $('exitBtn').textContent = 'Tap again to exit';
+  setTimeout(() => { if (exitArmed && performance.now() - exitArmed >= 3000) disarmExit(); }, 3100);
+};
 
 // ------------------------------------------------------------------ menus
 function setScreen(s) {
@@ -138,7 +189,7 @@ function setScreen(s) {
   if (s === 'playing') $('gameHud').classList.remove('hidden');
   if (s === 'results') $('results').classList.remove('hidden');
   $('mobileControls').classList.toggle('off', s !== 'playing');
-  if (s !== 'playing') touch.release();
+  if (s !== 'playing') { touch.release(); closeMenu(); }
   if (s !== 'playing' && document.pointerLockElement) document.exitPointerLock();
 }
 const showError = t => { $('homeError').textContent = t || ''; };
@@ -354,6 +405,7 @@ function cameraEye(out = new THREE.Vector3()) { return out.set(local.sim.x, loca
 
 function simTick() {
   let mx = 0, mz = 0;
+  if (menuOpen) { for (const k in keys) keys[k] = false; touch.release(); }
   if (keys.KeyW || keys.ArrowUp) mz += 1; if (keys.KeyS || keys.ArrowDown) mz -= 1;
   if (keys.KeyD || keys.ArrowRight) mx += 1; if (keys.KeyA || keys.ArrowLeft) mx -= 1;
   mx += touch.move.x; mz += touch.move.z;
@@ -599,7 +651,7 @@ async function boot() {
   $('loadStatus').textContent = `Graphics: ${qualityName.toUpperCase()} · ${renderer.capabilities.isWebGL2 ? 'WebGL 2' : 'WebGL'} ready`;
   $('createBtn').disabled = $('showJoinBtn').disabled = false;
   // debugging / automated-test hooks (do not grant anything the server would not accept from a normal client)
-  window.__NAB = { renderer, scene, camera, world, fx, weapon, audio, local, remotes, avatars, socket, Sim, input: { fire: v => { testFire = v; }, aim: v => { aimDown = v; } }, touch, setFreeCam: v => { freeCam = v; } };
+  window.__NAB = { renderer, scene, camera, world, fx, weapon, audio, local, remotes, avatars, socket, Sim, input: { fire: v => { testFire = v; }, aim: v => { aimDown = v; } }, touch, menu: { open: openMenu, close: closeMenu, isOpen: () => menuOpen }, setFreeCam: v => { freeCam = v; } };
 }
 requestAnimationFrame(frame);
 boot().catch(err => { console.error(err); $('loadStatus').textContent = 'Failed to initialise graphics: ' + err.message; });

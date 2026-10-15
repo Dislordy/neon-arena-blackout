@@ -2,16 +2,16 @@
 // - left half: floating joystick that appears under your thumb
 // - right half: drag anywhere to look
 // - FIRE button also aims while you drag on it (shoot + track in one thumb)
-// - ADS, jump, reload, dash, shield, scan buttons arranged around FIRE
+// - ADS, jump, reload, dash, shield, scan buttons arranged around FIRE (the ☰ menu lives in the HUD)
 // - optional haptics; landscape lock via fullscreen where the browser allows it
 const $ = id => document.getElementById(id);
 const capture = (el, id) => { try { el.setPointerCapture(id); } catch { /* pointer already gone */ } };
 
 export class TouchControls {
-  constructor({ onLook, onReload, onDash, onAbility, onScores }) {
+  constructor({ onLook, onReload, onDash, onAbility }) {
     this.move = { x: 0, z: 0 };
     this.fire = false; this.aim = false; this.jump = false;
-    this.cb = { onLook, onReload, onDash, onAbility, onScores };
+    this.cb = { onLook, onReload, onDash, onAbility };
     this.stickId = null; this.lookId = null; this.fireId = null; this.last = new Map();
     this.base = $('stickBase'); this.knob = $('stickKnob');
     this.bindStick(); this.bindLook(); this.bindButtons();
@@ -84,7 +84,6 @@ export class TouchControls {
     tap('mDash', () => this.cb.onDash());
     tap('mShield', () => this.cb.onAbility('shield'));
     tap('mScan', () => this.cb.onAbility('scan'));
-    tap('mScores', () => this.cb.onScores());
   }
 
   /** Reset everything (e.g. on death or leaving a match) so nothing stays "held". */
