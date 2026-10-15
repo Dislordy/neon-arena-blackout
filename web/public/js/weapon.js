@@ -195,6 +195,10 @@ export class Weapon {
     // ---- Rune-Warden: your own monstrous forearms (borrowed from the third-person model)
     this.clawRig = new THREE.Group(); this.root.add(this.clawRig);
     const w = buildWarden();
+    // long hooked claw fingers, like the animated Warden's
+    for (const A of [w.armL, w.armR]) {
+      A.hand.children.filter(o => o.geometry && o.geometry.type === 'ConeGeometry').forEach((o, f) => { o.scale.set(1.2, 2.4, 1.2); o.position.x *= 1.6; o.position.y -= 0.03; o.rotation.z += (f - 1.5) * 0.18; });
+    }
     this.clawHands = [w.armR.hand, w.armL.hand]; this.clawIntro = 9; this.clawN = 0; this.clawAir = 0;
     this.clawArms = [w.armR.el, w.armL.el].map((el, i) => {
       el.parent.remove(el); const holder = new THREE.Group(); holder.add(el); el.position.set(0, 0, 0); el.rotation.set(0, 0, 0);

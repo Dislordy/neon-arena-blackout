@@ -9,8 +9,9 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
 import { buildSword, buildShotgun, emberMaterial, buildSniper } from './classgear.js';
-import { buildWarden, runeTexture } from './warden.js';
+import { buildWarden, runeTexture, buildCreep, wardenModelReady } from './warden.js';
 const MON_SCALE = window.NeonSim.MON_SCALE;
+const _cv = new THREE.Vector3();
 
 let shared = null;
 function sharedAssets() {
@@ -354,6 +355,14 @@ export class Avatar {
     // ---- death: buckle at the knees, topple forward, then dissolve into embers
     if (!st.alive) {
       if (this.wasAlive) { this.deathT = 0; this.wasAlive = false; }
+      if (this.deathT >= 0 && this.creep && this.creep.group.visible) { // the imported Warden plays its own death
+        if (this.deathT === 0) this.creepShot('death', { from: 0, to: 1.6, ts: 1, fade: 0.12, hold: true });
+        this.deathT += dt; this.creepAnimate(dt, 0, 0);
+        if (this.deathT > 1.9) { if (this.onDissolve) this.onDissolve(new THREE.Vector3(st.x, st.y + 0.4, st.z), 0xff2a3a); this.deathT = -1; g.visible = false; }
+        else g.visible = true;
+        this.uniforms.uTime.value += dt;
+        return;
+      }
       if (this.deathT >= 0) {
         this.deathT += dt;
         const k1 = Math.min(1, this.deathT / 0.35), k2 = Math.min(1, Math.max(0, (this.deathT - 0.3) / 0.55));
@@ -472,6 +481,14 @@ export class Avatar {
     this.frame.visible = !showW; W.group.visible = showW;
     this.tag.position.y = showW ? 3.0 : 2.15;
     this.shield.scale.set(0.75 * (showW ? MON_SCALE : 1), 1.1 * (showW ? MON_SCALE : 1), 0.75 * (showW ? MON_SCALE : 1)); this.shield.position.y = 0.95 * (showW ? MON_SCALE : 1);
+    // the imported, animated body takes over as soon as it has loaded (the hand-built one is the fallback)
+    if (!this.creep && wardenModelReady()) { this.creep = buildCreep(); this.creep.group.visible = false; this.body.add(this.creep.group); }
+    if (this.creep) {
+      W.group.visible = false; this.creep.group.visible = showW; this.tag.position.y = showW ? 3.5 : 2.15;
+      if (showW) this.updateCreep(dt, st, fwd, shrink);
+      else if (this.creepState) { this.creep.mixer.stopAllAction(); this.creepState = null; }
+      return;
+    }
     if (!showW) return;
 
     const age = mon ? (this.monAge += dt) : 99, air = this.airBlend, fl = this.flinchT * this.flinchT;
@@ -576,12 +593,98 @@ export class Avatar {
     W.runeMat.emissiveIntensity = (2.2 + roar * 3 + ad * 5 + smash * 2 + pound * 1.5) * (1 - shrink * 0.85);
     W.glow.color.setRGB(3, 0.35, 0.45).multiplyScalar((1 + Math.sin(this.time * 4) * 0.2 + roar + ad * 2) * (1 - shrink * 0.8));
   }
+  /** Start a one-shot clip on the imported Warden. upper: chest/arms/head only (legs keep walking). hold: stay on the last frame. */
+  creepShot(name, { from = 0, to, ts = 1, fade = 0.1, upper = false, hold = false } = {}) {
+    const C = this.creep, cs = this.creepState || (this.creepState = {});
+    if (cs.shot) cs.shot.a.stop();
+    const a = C.act[upper ? name + '_upper' : name];
+    a.reset(); a.setLoop(THREE.LoopOnce, 1); a.clampWhenFinished = true; a.time = from; a.timeScale = ts; a.setEffectiveWeight(0); a.play();
+    cs.shot = { a, to: to ?? a.getClip().duration, fade, upper, hold, k: 0, name };
+  }
+  /** Blend locomotion (idle / prowl / walk / crawl / air) with the current one-shot and advance the mixer. */
+  creepAnimate(dt, speed, fwd) {
+    const C = this.creep, A = C.act, cs = this.creepState || (this.creepState = {});
+    if (!cs.base) { for (const n of ['idle', 'prowl', 'walk', 'crawl', 'jump']) { A[n].reset(); A[n].setEffectiveWeight(0); A[n].play(); } cs.base = true; cs.prowlK = 0; cs.idleT = 0; }
+    const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+    const walkK = sm(0.4, 2.2, speed), crawlK = sm(4.2, 6.0, speed), air = this.airBlend;
+    // when standing still for a while it sinks into a prowling crouch on all fours, then rises again
+    cs.idleT = walkK < 0.1 ? cs.idleT + dt : 0;
+    const prowl = (cs.idleT > 6 && (cs.idleT % 14) < 7) || cs.reverting ? 1 : 0;
+    cs.prowlK += (prowl - cs.prowlK) * Math.min(1, dt * 2.5);
+    A.jump.time = 0.5; A.jump.timeScale = 0;                                // a held mid-leap pose while airborne
+    A.walk.timeScale = Math.min(2.6, Math.max(0.6, speed / 2.0)) * (fwd < -0.3 ? -1 : 1);
+    A.crawl.timeScale = Math.min(2.8, Math.max(0.7, speed / 2.1)) * (fwd < -0.3 ? -1 : 1);
+    let shotK = 0;
+    const S = cs.shot;
+    if (S) {
+      const done = S.a.time >= S.to - 1e-3 || (!S.a.isRunning() && !S.hold);
+      S.k = done && !S.hold ? S.k - dt / 0.18 : Math.min(1, S.k + dt / S.fade);
+      if (S.a.time >= S.to) S.a.paused = true;
+      if (S.k <= 0) { S.a.stop(); cs.shot = null; } else { S.a.setEffectiveWeight(S.k * (S.upper ? 20 : 1)); shotK = S.upper ? 0 : S.k; }
+    }
+    const base = (1 - shotK) * (1 - air);
+    A.idle.setEffectiveWeight(base * (1 - walkK) * (1 - cs.prowlK));
+    A.prowl.setEffectiveWeight(base * (1 - walkK) * cs.prowlK);
+    A.walk.setEffectiveWeight(base * walkK * (1 - crawlK));
+    A.crawl.setEffectiveWeight(base * walkK * crawlK);
+    A.jump.setEffectiveWeight((1 - shotK) * air);
+    C.mixer.update(dt); C.pose();
+  }
+  /** The imported Warden: drives its clips from movement and events, plus the rune glow, halo, stomps and growth. */
+  updateCreep(dt, st, fwd, shrink) {
+    const C = this.creep, mon = !!st.mon, cs = this.creepState || (this.creepState = {});
+    const seg = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a))), sm = x => x * x * (3 - 2 * x);
+    const age = mon ? (this.monAge += dt) : 99;
+    const stomp = (str) => { if (this.onStomp) this.onStomp(new THREE.Vector3(st.x, st.y, st.z), str); };
+    if (mon && age <= dt * 1.5) { this.creepShot('roar', { from: 0.2, to: 3.0, ts: 1.15, fade: 0.08 }); cs.snapped = false; cs.nextRoar = 10; }
+    // the roar's snap forward shakes the street
+    if (cs.shot && cs.shot.name === 'roar' && !cs.snapped && cs.shot.a.time > 1.3) { cs.snapped = true; stomp(1.6); }
+    // grow in (with overshoot) / shrink away on revert
+    const g0 = Math.min(1, age / 0.45), back = 1 + 2.2 * Math.pow(g0 - 1, 3) + 1.2 * Math.pow(g0 - 1, 2);
+    C.group.scale.setScalar((0.7 + 0.3 * back) * (1 - 0.32 * shrink));
+    cs.reverting = shrink > 0;
+    const busy = cs.shot && cs.shot.name !== 'hit';
+    const moving = this.speed > 1.2;
+    // attacks: two claw rakes, then a lunging bite
+    if (this.clawT === 0) {
+      this.clawT = -1;
+      if (this.clawSlam) this.creepShot('bite', { from: 0.55, to: 1.35, ts: 1.5, fade: 0.06, upper: moving });
+      else this.creepShot('punch', { from: 0.15, to: 0.95, ts: 1.5, fade: 0.06, upper: moving });
+    }
+    // hit flinch / adaptation shudder (upper body, never interrupts an attack or the roar)
+    if (this.flinchT > 0.95 && !busy) this.creepShot('hit', { from: 0, to: 0.6, ts: 1.6, fade: 0.05, upper: true });
+    this.adaptT = (this.adaptT ?? 9) + dt;
+    if (this.adaptT < dt * 1.5 && !busy) this.creepShot('hit', { from: 0, to: 0.7, ts: 1.3, fade: 0.05, upper: true });
+    // landing: a heavy crouch-and-rise from the drop animation
+    if (st.og && !this.wasOg && this.airTime > 0.25 && mon) { stomp(Math.min(1.4, 0.6 + this.airTime)); if (!busy) this.creepShot('land', { from: 0.78, to: 1.2, ts: 1.1, fade: 0.04 }); }
+    this.airTime = st.og ? 0 : (this.airTime || 0) + dt; this.wasOg = st.og;
+    // now and then, standing around, it throws its head back and screams
+    if (mon && age > 4 && !moving && !cs.shot) { cs.nextRoar -= dt; if (cs.nextRoar <= 0) { cs.nextRoar = 9 + Math.random() * 6; this.creepShot('roar_upper', { from: 1.1, to: 3.2, ts: 1.2, fade: 0.2 }); } }
+    this.creepAnimate(dt, this.speed, fwd);
+    // heavy footfalls
+    C.group.updateMatrixWorld(true);
+    const fy = C.feet.map(f => f.getWorldPosition(_cv).y - this.group.position.y);
+    cs.fy = cs.fy || fy.slice();
+    if (moving && st.og) fy.forEach((y, i) => { if (y < 0.12 && cs.fy[i] >= 0.12) stomp(0.35 * Math.min(1, this.speed / 6)); });
+    cs.fy = fy;
+    // halo hovers over the head, spins in fast, snaps a sixth of a turn per adaptation
+    C.head.getWorldPosition(_cv); C.group.worldToLocal(_cv);
+    C.halo.position.set(_cv.x, _cv.y + 0.55, _cv.z);
+    this.haloAngle += (this.haloTarget - this.haloAngle) * Math.min(1, dt * 10);
+    const ad = Math.max(0, 1 - this.adaptT / 0.6), roar = cs.shot && cs.shot.name.startsWith('roar') ? cs.shot.k : 0;
+    C.haloSpin.rotation.y = this.haloAngle + this.time * 0.15 + Math.pow(1 - Math.min(1, age / 1.4), 2) * 14;
+    C.haloSpin.scale.setScalar(1 + ad * 0.3);
+    C.halo.scale.setScalar(1.25 * sm(seg(age, 0.15, 0.6)) * (1 - shrink));
+    C.runeMat.emissiveIntensity = (2.2 + roar * 3 + ad * 5 + Math.sin(this.time * 3) * 0.4) * (1 - shrink * 0.85);
+    C.glow.color.setRGB(3, 0.35, 0.45).multiplyScalar((1 + Math.sin(this.time * 4) * 0.2 + roar + ad * 2) * (1 - shrink * 0.8));
+  }
   /** Ember flare when the sword transforms. */
   flare() { this.surge = 1; }
   muzzleWorld(out = new THREE.Vector3()) { this.group.updateMatrixWorld(true); return this.muzzle.getWorldPosition(out); }
   setXray(on) { this.ghost.visible = on; }
   dispose() {
-    this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    this.group.traverse(o => { if (o.geometry && !o.userData.sharedGeo) o.geometry.dispose(); });
+    if (this.creep) { this.creep.mixer.stopAllAction(); this.creep.runeMat.dispose(); this.creep.glow.dispose(); }
     this.glow.dispose(); this.glowSoft.dispose(); this.ownMats.forEach(m => m.dispose()); if (this.ember) this.ember.dispose();
     if (this.warden) { this.warden.runeMat.dispose(); this.warden.glow.dispose(); this.runeShellMat.dispose(); }
     this.shield.material.dispose(); this.tag.material.map.dispose(); this.tag.material.dispose();

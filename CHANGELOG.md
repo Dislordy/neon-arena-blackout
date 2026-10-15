@@ -1,5 +1,15 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.10 — Rune-Warden: real creature animations
+- The Warden now moves with an imported, professionally animated creature skeleton ("Creep" rig, chosen by the
+  developer): a screaming roar when it transforms, breathing idle, a prowling crouch on all fours when it stands still,
+  a stalking walk, a four-legged scuttle at full speed, punches and a lunging bite, hit flinches, a leap pose in the air,
+  a heavy landing and a collapsing death. The jaw opens when it roars and bites.
+- The body is still our own Rune-Warden (pale rune-carved skin, skirt, bandaged forearms, bone blade, horn fins,
+  iron halo) — every part rides on the imported bones. Only the skeleton + animations ship (`web/public/models/warden.glb`,
+  ~1 MB, loads in the background); until it arrives the hand-posed V4.9.1 body is used.
+- First-person claws are longer and hooked to match. Pipeline: `node web/tools/convert-warden.mjs Creep.fbx web/public/models/warden.glb`.
+
 ## V4.9.1 — Rune-Warden animation pass (more monster)
 - The transformation: the Soldier doubles over and convulses while the runes spread; the Warden then grows out
   with a bounce, roars with its arms flung wide (halo spinning in), pounds its chest and smashes both fists into the street.

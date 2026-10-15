@@ -10,6 +10,8 @@ import { AudioEngine } from './audio.js';
 import { createPost } from './post.js';
 import { Hud, escapeHtml } from './hud.js';
 import { TouchControls, goLandscape } from './touch.js';
+import { loadWardenModel } from './warden.js';
+loadWardenModel(); // the animated Rune-Warden body streams in the background (the hand-built one covers until then)
 
 const Sim = window.NeonSim;
 const $ = id => document.getElementById(id);
