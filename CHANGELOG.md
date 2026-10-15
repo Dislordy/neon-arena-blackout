@@ -1,5 +1,14 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.1 — Audio remix
+- Mixer rebuilt into separate channels: action (guns, movement, impacts) with its own glue compressor,
+  ambience (rain, city hum, neon buzz) that ducks under every gunshot, UI (hit markers), and a master limiter.
+- New VX-9 rifle sound in 4 stereo variations: crack, sub punch, body, FM plasma zap, metallic ring, bolt clack,
+  slap-back echoes off buildings. Distant shots get a muffled version with rolling echoes.
+- Softer stereo rain (no hiss), wet footsteps (6 variations), armour clink on other runners' steps,
+  reverb with early reflections off the street walls.
+- Measured mix: own fire ≈ −10 dB, nearby enemy ≈ −17 dB, footsteps/reload ≈ −24 dB, rain ≈ −34 dB (RMS).
+
 ## V4 · Build 4
 - New home: this repository unifies the web game, the Unreal/Lyra track and the V1 archive.
 - Web: version badge "V4 · BUILD 4", `render.yaml` for a permanent public link (Render free plan),

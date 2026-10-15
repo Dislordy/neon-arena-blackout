@@ -287,9 +287,9 @@ socket.on('hit', h => {
   fx.playerHit(pos, new THREE.Vector3().subVectors(pos, cameraEye()).normalize(), victim ? victim.color : 0xffffff, h.part === 'head');
   hud.hitmarker(h.k ? 'kill' : h.part === 'head' ? 'head' : '');
   hud.damageNumber(String(h.d), h.part === 'head' ? 'head' : h.shielded ? 'shield' : '', pos);
-  audio.play(h.part === 'head' ? 'headshot' : 'hit', { volume: 0.55, vary: 0.02, reverb: 0 });
+  audio.play(h.part === 'head' ? 'headshot' : 'hit', { volume: 0.55, vary: 0.02, reverb: 0, bus: 'ui' });
   if (h.k) {
-    setTimeout(() => audio.play('kill', { volume: 0.6, reverb: 0.1, vary: 0 }), 70);
+    setTimeout(() => audio.play('kill', { volume: 0.6, reverb: 0.1, vary: 0, bus: 'ui' }), 70);
     const name = meta?.players.find(p => p.id === h.id)?.name || 'RUNNER';
     hud.killBanner(`<span class="pts">+${h.part === 'head' ? 125 : 100}</span><span class="who">ELIMINATED ${escapeHtml(name.toUpperCase())}</span>${h.part === 'head' ? ' <span class="hs">· HEADSHOT</span>' : ''}`);
   }
@@ -415,13 +415,13 @@ function handleLocalEvents(ev, wasOg) {
     camShake.kick = 1;
   }
   if (ev.dry) audio.play('dry', { volume: 0.7, reverb: 0 });
-  if (ev.jump) audio.play('jump', { volume: 0.5, reverb: 0.1 });
-  if (ev.land) { audio.play('land', { volume: 0.7, reverb: 0.15 }); weapon.land(1); camShake.land = 1; }
+  if (ev.jump) audio.play('jump', { volume: 0.6, reverb: 0.1 });
+  if (ev.land) { audio.play('land', { volume: 0.85, reverb: 0.15 }); audio.footstep(null, true); weapon.land(1); camShake.land = 1; }
   if (ev.dash) { audio.play('dash', { volume: 0.7, reverb: 0.2 }); camShake.dash = 1; }
   // footsteps
   if (s.og && wasOg) {
     local.stepDist += Math.hypot(s.vx, s.vz) * Sim.DT;
-    if (local.stepDist > 2.1) { local.stepDist = 0; audio.play('step' + (Math.random() * 4 | 0), { volume: 0.32, reverb: 0.05 }); if (s.y < 0.01) fx.footSplash(s); }
+    if (local.stepDist > 2.1) { local.stepDist = 0; audio.footstep(null, true); if (s.y < 0.01) fx.footSplash(s); }
   }
 }
 
@@ -454,7 +454,7 @@ function updateRemotes(dt) {
     // steps & dash trails
     if (st.alive && r.state && st.og) {
       r.stepDist += Math.hypot(st.x - r.state.x, st.z - r.state.z);
-      if (r.stepDist > 2.0) { r.stepDist = 0; audio.play('step' + (Math.random() * 4 | 0), { pos: new THREE.Vector3(st.x, st.y + 0.1, st.z), volume: 0.75, ref: 2 }); if (st.y < 0.01) fx.footSplash(st); }
+      if (r.stepDist > 2.0) { r.stepDist = 0; audio.footstep(new THREE.Vector3(st.x, st.y + 0.1, st.z)); if (st.y < 0.01) fx.footSplash(st); }
     }
     if (st.dash && st.alive) fx.dashTrail(st, a.color);
     if (r.state && r.state.og === false && st.og && st.alive) audio.play('land', { pos: new THREE.Vector3(st.x, st.y, st.z), volume: 0.5 });

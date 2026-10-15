@@ -30,20 +30,57 @@ function env(b, sr, fn) { for (let i = 0; i < b.length; i++) b[i] *= fn(i / sr);
 
 // ------------------------------------------------------------------ sound designs
 const designs = {
-  shot(sr) {
-    const n = Math.round(sr * 0.7), out = new Float32Array(n);
-    mixInto(out, env(hp(noise(n, 3), 2500, sr), sr, t => Math.exp(-t * 95)), 0.9);
-    mixInto(out, env(lp(noise(n, 4), 1600, sr), sr, t => Math.exp(-t * 16)), 0.8);
-    mixInto(out, sweepSine(n, sr, 170, 42, 22, { k: 2.5 }), 1.1);
-    mixInto(out, sweepSine(n, sr, 2600, 380, 26, { k: 1.4, shape: 'saw' }), 0.18);
-    mixInto(out, env(lp(noise(n, 5), 700, sr), sr, t => Math.exp(-t * 4.5) * Math.min(1, t * 40)), 0.25);
-    return fadeEdges(normalize(softclip(out, 1.8), 0.95), sr);
+  /**
+   * VX-9 plasma rifle, layered like a real gunshot recording + a sci-fi energy component.
+   * Stereo; v selects one of several variations so full-auto never sounds like a loop.
+   */
+  shot(sr, v = 0) {
+    const n = Math.round(sr * 1.1), mono = new Float32Array(n), sv = 1 + (v - 1.5) * 0.03;
+    // 1 crack: very short broadband transient (the "snap")
+    mixInto(mono, env(hp(noise(n, 300 + v), 1800, sr), sr, t => Math.exp(-t * 420)), 1.1);
+    // 2 punch: pitched-down sub thump you feel in the chest
+    mixInto(mono, sweepSine(n, sr, 135 * sv, 46, 16, { k: 3.2 }), 1.5);
+    // 3 body: band-limited blast
+    mixInto(mono, env(lp(hp(noise(n, 310 + v), 220, sr), 1700, sr), sr, t => Math.exp(-t * 30) * Math.min(1, t * 800)), 0.9);
+    // 4 plasma zap: FM sweep gives the cyberpunk energy character
+    {
+      const z = new Float32Array(Math.round(sr * 0.22)); let pc = 0, pm = 0;
+      for (let i = 0; i < z.length; i++) {
+        const t = i / sr, fc = (520 + 1900 * Math.exp(-t * 28)) * sv, I = 3.5 * Math.exp(-t * 18);
+        pc += TAU * fc / sr; pm += TAU * fc * 1.48 / sr;
+        z[i] = Math.sin(pc + I * Math.sin(pm)) * Math.exp(-t * 20) * Math.min(1, t * 2000);
+      }
+      mixInto(mono, z, 0.45);
+    }
+    // 5 metallic ring of the receiver/barrel
+    mixInto(mono, partials(Math.round(sr * 0.4), sr, [1830 * sv, 2970 * sv, 4410 * sv], [28, 36, 50], [0.22, 0.16, 0.09]));
+    // 6 mechanical bolt clack ~38 ms later
+    const clackAt = Math.round(sr * (0.036 + v * 0.002));
+    mixInto(mono, env(hp(noise(Math.round(sr * 0.05), 320 + v), 2500, sr), sr, t => Math.exp(-t * 260)), 0.35, clackAt);
+    mixInto(mono, partials(Math.round(sr * 0.06), sr, [3200, 5100], [120, 160], [0.18, 0.1]), 1, clackAt);
+    // stereo: decorrelated air/rumble tail + slap-back echoes off the surrounding buildings
+    const slap = lp(mono.slice(0, Math.round(sr * 0.25)), 2400, sr);
+    const side = (seed, d1, d2) => {
+      const c = mono.slice();
+      mixInto(c, env(lp(noise(n, seed), 650, sr), sr, t => Math.exp(-t * 3.2) * Math.min(1, t * 30)), 0.3);
+      mixInto(c, slap, 0.24, Math.round(sr * d1));
+      mixInto(c, slap, 0.12, Math.round(sr * d2));
+      return c;
+    };
+    const L = side(330 + v, 0.11, 0.29), R = side(340 + v, 0.14, 0.33);
+    softclip(L, 1.7); softclip(R, 1.7);
+    return stereoFinish(L, R, sr, 0.95);
   },
-  shotFar(sr) {
-    const b = designs.shot(sr), n = Math.round(sr * 1.3), out = new Float32Array(n);
-    mixInto(out, lp(lp(b, 1100, sr), 900, sr), 1);
-    mixInto(out, env(lp(noise(n, 6), 400, sr), sr, t => Math.exp(-t * 2.6) * Math.min(1, t * 15)), 0.25);
-    return fadeEdges(normalize(out, 0.8), sr);
+  /** Distant gunfire: muffled, longer rumble, clear echoes rolling between buildings. */
+  shotFar(sr, v = 0) {
+    const near = designs.shot(sr, v), n = Math.round(sr * 1.8);
+    const one = (src, seed, e1, e2) => {
+      const c = new Float32Array(n), f = lp(lp(src.slice(), 1000, sr), 800, sr);
+      mixInto(c, f, 1); mixInto(c, f, 0.35, Math.round(sr * e1)); mixInto(c, f, 0.18, Math.round(sr * e2));
+      mixInto(c, env(lp(noise(n, seed), 300, sr), sr, t => Math.exp(-t * 2) * Math.min(1, t * 12)), 0.3);
+      return c;
+    };
+    return stereoFinish(one(near.L, 360 + v, 0.24, 0.52), one(near.R, 370 + v, 0.27, 0.57), sr, 0.8);
   },
   dry(sr) {
     const n = Math.round(sr * 0.08), out = new Float32Array(n);
@@ -110,11 +147,25 @@ const designs = {
     mixInto(out, sweepSine(n, sr, 120, 60, 30), 0.8);
     return fadeEdges(normalize(softclip(out, 2), 0.8), sr);
   },
+  /** Wet footstep on rainy concrete: heel thump + scuff + splash with droplets. */
   step(sr, v = 0) {
-    const n = Math.round(sr * 0.16), out = env(lp(noise(n, 20 + v), 900 + v * 150, sr), sr, t => Math.exp(-t * 55) * Math.min(1, t * 500));
-    mixInto(out, sweepSine(n, sr, 110 + v * 8, 60, 45), 0.7);
-    mixInto(out, env(hp(noise(n, 30 + v), 3500, sr), sr, t => Math.exp(-t * 35) * Math.min(1, t * 200)), 0.25); // wet splash
-    return fadeEdges(normalize(out, 0.6), sr);
+    const n = Math.round(sr * 0.22), out = new Float32Array(n);
+    mixInto(out, sweepSine(n, sr, 85 + v * 6, 45, 55, { k: 2 }), 0.9);
+    mixInto(out, env(lp(hp(noise(n, 20 + v), 500, sr), 2500, sr), sr, t => Math.exp(-t * 70) * Math.min(1, t * 900)), 0.5);
+    mixInto(out, env(hp(noise(n, 30 + v), 3000, sr), sr, t => Math.exp(-t * 28) * Math.min(1, t * 300)), 0.42);
+    let sd = 41 + v * 7;
+    for (let k = 0; k < 4; k++) {
+      sd = (sd * 16807) % 2147483647;
+      const f = 3000 + (sd % 3500), off = Math.round(sr * (0.01 + (sd % 50) / 1000));
+      mixInto(out, partials(Math.round(sr * 0.03), sr, [f], [150], [1]), 0.12, off);
+    }
+    return fadeEdges(normalize(out, 0.7), sr);
+  },
+  /** Plate-armour clink layered on other runners' footsteps. */
+  clink(sr) {
+    const n = Math.round(sr * 0.15), out = partials(n, sr, [2650, 4120, 5900], [45, 60, 80], [0.6, 0.35, 0.2]);
+    mixInto(out, env(hp(noise(n, 77), 4000, sr), sr, t => Math.exp(-t * 300)), 0.3);
+    return fadeEdges(normalize(out, 0.5), sr);
   },
   land(sr) {
     const n = Math.round(sr * 0.3), out = env(lp(noise(n, 40), 700, sr), sr, t => Math.exp(-t * 25));
@@ -171,12 +222,22 @@ const designs = {
     return fadeEdges(normalize(lp(softclip(out, 2), 4000, sr), 0.85), sr);
   },
   // loops
+  /** Soft stereo rain: filtered pink-ish noise, rooftop rumble and scattered droplets (no harsh hiss). */
   rain(sr) {
-    const n = Math.round(sr * 4), out = lp(hp(noise(n, 50), 600, sr), 6000, sr);
-    for (let i = 0; i < out.length; i++) out[i] *= 0.35;
-    const drop = partials(Math.round(sr * 0.02), sr, [3000], [200], [1]);
-    let s = 7; for (let k = 0; k < 400; k++) { s = (s * 16807) % 2147483647; mixInto(out, drop, 0.15 + (s % 100) / 400, s % (n - drop.length)); }
-    return loopable(out, sr);
+    const n = Math.round(sr * 6);
+    const drop = f => partials(Math.round(sr * 0.025), sr, [f], [250], [1]);
+    const drops = [2600, 3400, 4300, 5200, 6100].map(drop);
+    const ch = seed => {
+      const body = lp(lp(hp(noise(n, seed), 300, sr), 2600, sr), 3200, sr);
+      mixInto(body, lp(lp(noise(n, seed + 10), 180, sr), 220, sr), 2.5);
+      let s2 = seed * 13 + 7;
+      for (let k = 0; k < 900; k++) {
+        s2 = (s2 * 16807) % 2147483647;
+        mixInto(body, drops[s2 % drops.length], 0.05 + (s2 % 100) / 800, s2 % (n - drops[0].length));
+      }
+      return loopable(normalize(body, 0.55), sr);
+    };
+    return { L: ch(50), R: ch(51) };
   },
   hum(sr) {
     const n = Math.round(sr * 4), out = new Float32Array(n);
@@ -192,6 +253,11 @@ const designs = {
     return loopable(normalize(out, 0.5), sr);
   }
 };
+function stereoFinish(L, R, sr, peak) {
+  let m = 0; for (let i = 0; i < L.length; i++) m = Math.max(m, Math.abs(L[i]), Math.abs(R[i]));
+  const k = m > 0 ? peak / m : 1; for (let i = 0; i < L.length; i++) { L[i] *= k; R[i] *= k; }
+  return { L: fadeEdges(L, sr), R: fadeEdges(R, sr) };
+}
 function loopable(b, sr) {
   // crossfade the tail into the head so the buffer loops seamlessly
   const x = Math.round(sr * 0.2), out = b.slice(0, b.length - x);
@@ -200,33 +266,66 @@ function loopable(b, sr) {
 }
 
 // ------------------------------------------------------------------ engine
+// Mix levels (0..1). Ambience sits well under the action and ducks whenever a gun fires.
+const MIX = { ambience: 0.42, sfx: 1.0, ui: 0.85, reverb: 0.28 };
+const VARIANTS = { shot: 4, shotFar: 2, step: 6 };
+
 export class AudioEngine {
   constructor() { this.ctx = null; this.buffers = {}; this.voices = 0; this.enabled = false; this.volume = 0.8; }
 
-  init() {
+  /** Create the audio graph. `customCtx` (e.g. an OfflineAudioContext) is used for offline previews/tests. */
+  init(customCtx) {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return;
-    const ctx = this.ctx = new AC({ latencyHint: 'interactive' });
+    if (!AC && !customCtx) return;
+    const ctx = this.ctx = customCtx || new AC({ latencyHint: 'interactive' });
     const sr = ctx.sampleRate;
-    this.master = ctx.createGain(); this.master.gain.value = this.volume;
-    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.2;
-    this.master.connect(comp); comp.connect(ctx.destination);
-    // convolution reverb bus (synthesised impulse response of a large concrete space)
+    const gain = v => { const g = ctx.createGain(); g.gain.value = v; return g; };
+    // master -> brick-wall limiter -> speakers
+    this.limiter = ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = -1.5; this.limiter.knee.value = 0; this.limiter.ratio.value = 20; this.limiter.attack.value = 0.001; this.limiter.release.value = 0.12;
+    this.master = gain(this.volume); this.master.connect(this.limiter); this.limiter.connect(ctx.destination);
+    // action bus (guns, movement, impacts) with its own gentle glue compressor
+    const glue = ctx.createDynamicsCompressor(); glue.threshold.value = -10; glue.knee.value = 6; glue.ratio.value = 3; glue.attack.value = 0.003; glue.release.value = 0.18;
+    this.sfx = gain(MIX.sfx); this.sfx.connect(glue); glue.connect(this.master);
+    // ambience bus (rain, hum, neon buzz): bypasses the compressor so it never squashes the action
+    this.amb = gain(MIX.ambience); this.amb.connect(this.master);
+    // UI bus (hit markers, kill confirms)
+    this.ui = gain(MIX.ui); this.ui.connect(this.master);
+    // convolution reverb: early reflections off buildings + a diffuse wet-street tail
     this.reverb = ctx.createConvolver();
-    const irLen = Math.round(sr * 1.9), ir = ctx.createBuffer(2, irLen, sr);
-    for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c), nz = noise(irLen, 60 + c); for (let i = 0; i < irLen; i++) d[i] = nz[i] * Math.exp(-i / sr * 3.2) * (i < sr * 0.01 ? i / (sr * 0.01) : 1); lp(d, 5000, sr); }
+    const irLen = Math.round(sr * 1.6), ir = ctx.createBuffer(2, irLen, sr);
+    for (let c = 0; c < 2; c++) {
+      const d = ir.getChannelData(c), nz = noise(irLen, 60 + c);
+      for (let i = 0; i < irLen; i++) d[i] = nz[i] * Math.exp(-i / sr * 3.6) * 0.5 * (i < sr * 0.01 ? i / (sr * 0.01) : 1);
+      for (const [ms, a] of [[31 + c * 6, 0.9], [78 + c * 9, 0.6], [142 - c * 7, 0.45], [233 + c * 11, 0.3]]) { const k = Math.round(sr * ms / 1000); if (k < irLen) d[k] += a * (c ? -1 : 1); }
+      lp(d, 4200, sr);
+    }
     this.reverb.buffer = ir;
-    this.reverbGain = ctx.createGain(); this.reverbGain.gain.value = 0.35;
-    this.reverb.connect(this.reverbGain); this.reverbGain.connect(this.master);
+    this.reverbGain = gain(MIX.reverb); this.reverb.connect(this.reverbGain); this.reverbGain.connect(this.master);
     for (const [name, fn] of Object.entries(designs)) {
-      if (name === 'step') { for (let v = 0; v < 4; v++) this.buffers['step' + v] = this.toBuffer(fn(sr, v)); continue; }
+      const nv = VARIANTS[name];
+      if (nv) { for (let v = 0; v < nv; v++) this.buffers[name + v] = this.toBuffer(fn(sr, v)); if (name !== 'step') this.buffers[name] = this.buffers[name + 0]; continue; }
       this.buffers[name] = this.toBuffer(fn(sr));
     }
     this.enabled = true;
   }
-  toBuffer(data) { const b = this.ctx.createBuffer(1, data.length, this.ctx.sampleRate); b.copyToChannel(data, 0); return b; }
+  toBuffer(data) {
+    const stereo = data.L !== undefined, len = stereo ? data.L.length : data.length;
+    const b = this.ctx.createBuffer(stereo ? 2 : 1, len, this.ctx.sampleRate);
+    if (stereo) { b.copyToChannel(data.L, 0); b.copyToChannel(data.R, 1); } else b.copyToChannel(data, 0);
+    return b;
+  }
   setVolume(v) { this.volume = v; if (this.master) this.master.gain.value = v; }
+
+  /** Briefly lower the ambience (rain/hum) so the action cuts through, then let it swell back. */
+  duck(depth = 0.35, hold = 0.15) {
+    if (!this.enabled) return;
+    const g = this.amb.gain, t = this.ctx.currentTime, target = MIX.ambience * depth;
+    if (g.cancelAndHoldAtTime) g.cancelAndHoldAtTime(t); else { g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); }
+    if (g.value > target) g.setTargetAtTime(target, t, 0.012);
+    g.setTargetAtTime(MIX.ambience, t + hold, 0.45);
+  }
 
   /** Update the listener from the camera every frame. */
   updateListener(camera) {
@@ -250,16 +349,17 @@ export class AudioEngine {
     const h = Sim.raycastWorld(l, d, len - 0.3);
     return !!(h && h.kind !== 'floor');
   }
+  distanceTo(pos) { const l = this.listenerPos || pos; return Math.hypot(pos.x - l.x, pos.y - l.y, pos.z - l.z); }
 
   /**
-   * Play a sound. opts: { pos (world position => 3D), volume, rate, reverb, detune }
+   * Play a sound. opts: { pos (world position => 3D), volume, rate, vary, reverb, ref, rolloff, bus: 'sfx'|'ui'|'amb' }
    */
   play(name, opts = {}) {
     if (!this.enabled || this.voices > 56) return null;
-    let buf = this.buffers[name];
+    const buf = this.buffers[name];
     if (!buf) return null;
     const ctx = this.ctx;
-    const src = ctx.createBufferSource();
+    const src = ctx.createBufferSource(); src.buffer = buf;
     const vol = opts.volume !== undefined ? opts.volume : 1;
     src.playbackRate.value = (opts.rate || 1) * (1 + (Math.random() - 0.5) * (opts.vary !== undefined ? opts.vary : 0.06));
     const g = ctx.createGain(); g.gain.value = vol;
@@ -275,7 +375,8 @@ export class AudioEngine {
       if (p.positionX) { p.positionX.value = opts.pos.x; p.positionY.value = opts.pos.y; p.positionZ.value = opts.pos.z; } else p.setPosition(opts.pos.x, opts.pos.y, opts.pos.z);
       node.connect(p); node = p;
     }
-    node.connect(g); g.connect(this.master);
+    const bus = opts.bus === 'ui' ? this.ui : opts.bus === 'amb' ? this.amb : this.sfx;
+    node.connect(g); g.connect(bus);
     const rv = opts.reverb !== undefined ? opts.reverb : 0.3;
     if (rv > 0) { const s = ctx.createGain(); s.gain.value = rv; g.connect(s); s.connect(this.reverb); }
     src.start();
@@ -283,16 +384,24 @@ export class AudioEngine {
     src.onended = () => { this.voices--; g.disconnect(); };
     return src;
   }
+  pick(name) { return name + ((Math.random() * VARIANTS[name]) | 0); }
 
-  /** Remote gunshot: near/far variants by distance. */
+  /** Gunfire: your own rifle up front; others positioned, with a muffled/echoing variant at range. */
   gunshot(pos, own = false) {
-    if (own) return this.play('shot', { volume: 0.55, reverb: 0.25 });
-    const l = this.listenerPos || pos;
-    const d = Math.hypot(pos.x - l.x, pos.y - l.y, pos.z - l.z);
-    return this.play(d > 22 ? 'shotFar' : 'shot', { pos, volume: d > 22 ? 1.4 : 1.1, reverb: 0.45, ref: 4 });
+    if (own) { this.duck(0.3, 0.18); return this.play(this.pick('shot'), { volume: 0.95, reverb: 0.26, vary: 0.03 }); }
+    const d = this.distanceTo(pos);
+    if (d > 24) { this.duck(0.75, 0.1); return this.play(this.pick('shotFar'), { pos, volume: 1.7, reverb: 0.55, ref: 6, rolloff: 0.9, vary: 0.04 }); }
+    this.duck(0.5, 0.14);
+    return this.play(this.pick('shot'), { pos, volume: 1.25, reverb: 0.42, ref: 4, vary: 0.04 });
+  }
+  /** Footsteps: yours are close and clear; other runners' steps carry an armour clink so you can track them. */
+  footstep(pos, own = false) {
+    if (own) return this.play(this.pick('step'), { volume: 0.6, reverb: 0.05, vary: 0.1 });
+    this.play(this.pick('step'), { pos, volume: 1.0, ref: 3, reverb: 0.15, vary: 0.1 });
+    if (Math.random() < 0.6) this.play('clink', { pos: { x: pos.x, y: pos.y + 1, z: pos.z }, volume: 0.35, ref: 2.5, reverb: 0.1, vary: 0.25 });
   }
 
-  /** Start ambient loops (rain, city hum, neon buzz at sign positions). */
+  /** Start ambient loops (rain, city hum, neon buzz at sign positions) on the ambience bus. */
   startAmbience(emitters = []) {
     if (!this.enabled || this.ambience) return;
     this.ambience = [];
@@ -305,11 +414,11 @@ export class AudioEngine {
         if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y, pos.z);
         src.connect(p); node = p;
       }
-      node.connect(g); g.connect(this.master);
+      node.connect(g); g.connect(this.amb);
       src.start(0, Math.random() * src.buffer.duration);
       this.ambience.push(src);
     };
-    loop('rain', 0.22); loop('hum', 0.18);
-    for (const e of emitters.slice(0, 8)) loop('buzz', 0.05, e);
+    loop('rain', 0.5); loop('hum', 0.22);
+    for (const e of emitters.slice(0, 8)) loop('buzz', 0.07, e);
   }
 }
