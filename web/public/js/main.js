@@ -9,6 +9,7 @@ import { Avatar } from './avatar.js';
 import { AudioEngine } from './audio.js';
 import { createPost } from './post.js';
 import { Hud, escapeHtml } from './hud.js';
+import { TouchControls, goLandscape } from './touch.js';
 
 const Sim = window.NeonSim;
 const $ = id => document.getElementById(id);
@@ -73,8 +74,7 @@ const remotes = new Map(); // id -> { buffer: [], state, stepDist, xrayUntil, la
 // ------------------------------------------------------------------ input
 const keys = {};
 let pointerLocked = false, mouseDown = false, aimDown = false, dashQueued = false, reloadQueued = false, mouseDX = 0, mouseDY = 0;
-const mobileMove = { x: 0, z: 0 };
-let mobileFire = false, mobileJump = false;
+let testFire = false; // automated-test hook (see window.__NAB.input)
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
   keys[e.code] = true;
@@ -110,30 +110,24 @@ $('shieldBtn').onclick = () => ability('shield');
 $('scanBtn').onclick = () => ability('scan');
 function ability(type) { if (phase === 'playing' && local.alive) socket.emit('ability', { type }); }
 
-// mobile controls
-const stick = $('stick'), knob = $('knob'); let stickPointer = null, lookTouch = null, touchLast = null;
-stick.addEventListener('pointerdown', e => { stickPointer = e.pointerId; stick.setPointerCapture(e.pointerId); moveStick(e); });
-stick.addEventListener('pointermove', e => { if (e.pointerId === stickPointer) moveStick(e); });
-function moveStick(e) {
-  const r = stick.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-  let dx = e.clientX - cx, dy = e.clientY - cy; const l = Math.hypot(dx, dy), max = 36;
-  if (l > max) { dx = dx / l * max; dy = dy / l * max; }
-  knob.style.left = (35 + dx) + 'px'; knob.style.top = (35 + dy) + 'px'; mobileMove.x = dx / max; mobileMove.z = -dy / max;
-}
-const resetStick = () => { stickPointer = null; mobileMove.x = mobileMove.z = 0; knob.style.left = '35px'; knob.style.top = '35px'; };
-stick.addEventListener('pointerup', resetStick); stick.addEventListener('pointercancel', resetStick);
-$('lookZone').addEventListener('pointerdown', e => { lookTouch = e.pointerId; touchLast = { x: e.clientX, y: e.clientY }; $('lookZone').setPointerCapture(e.pointerId); });
-$('lookZone').addEventListener('pointermove', e => {
-  if (e.pointerId !== lookTouch || !touchLast) return;
-  const dx = e.clientX - touchLast.x, dy = e.clientY - touchLast.y;
-  local.yaw -= dx * 0.006 * sensitivity; local.pitch = THREE.MathUtils.clamp(local.pitch - dy * 0.006 * sensitivity, -1.3, 1.3);
-  mouseDX += dx * 2; mouseDY += dy * 2; touchLast = { x: e.clientX, y: e.clientY };
+// touch controls (phones/tablets): floating stick, drag-to-aim, fire-and-aim button, ability buttons
+const touch = new TouchControls({
+  onLook: (dx, dy) => {
+    const k = 0.0055 * sensitivity * (touch.aim ? 0.55 : 1);
+    local.yaw -= dx * k; local.pitch = THREE.MathUtils.clamp(local.pitch - dy * k, -1.3, 1.3);
+    mouseDX += dx * 2; mouseDY += dy * 2;
+  },
+  onReload: () => { reloadQueued = true; },
+  onDash: () => { dashQueued = true; },
+  onAbility: type => ability(type),
+  onScores: () => $('scoreboard').classList.toggle('hidden')
 });
-$('lookZone').addEventListener('pointerup', () => { lookTouch = null; touchLast = null; });
-$('mobileFire').addEventListener('pointerdown', e => { e.preventDefault(); mobileFire = true; });
-for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('mobileFire').addEventListener(ev, () => { mobileFire = false; });
-$('mobileJump').addEventListener('pointerdown', () => { mobileJump = true; setTimeout(() => { mobileJump = false; }, 120); });
-$('mobileReload').addEventListener('pointerdown', () => { reloadQueued = true; });
+if (isTouch) {
+  // landscape + fullscreen on the first tap of a menu button (browsers only allow this after a tap)
+  for (const id of ['createBtn', 'joinBtn', 'startBtn']) $(id).addEventListener('click', () => goLandscape());
+  $('scoreboard').addEventListener('pointerdown', () => $('scoreboard').classList.add('hidden'));
+}
+$('goLandscape').addEventListener('click', () => goLandscape());
 
 // ------------------------------------------------------------------ menus
 function setScreen(s) {
@@ -144,6 +138,7 @@ function setScreen(s) {
   if (s === 'playing') $('gameHud').classList.remove('hidden');
   if (s === 'results') $('results').classList.remove('hidden');
   $('mobileControls').classList.toggle('off', s !== 'playing');
+  if (s !== 'playing') touch.release();
   if (s !== 'playing' && document.pointerLockElement) document.exitPointerLock();
 }
 const showError = t => { $('homeError').textContent = t || ''; };
@@ -361,12 +356,12 @@ function simTick() {
   let mx = 0, mz = 0;
   if (keys.KeyW || keys.ArrowUp) mz += 1; if (keys.KeyS || keys.ArrowDown) mz -= 1;
   if (keys.KeyD || keys.ArrowRight) mx += 1; if (keys.KeyA || keys.ArrowLeft) mx -= 1;
-  mx += mobileMove.x; mz += mobileMove.z;
+  mx += touch.move.x; mz += touch.move.z;
   let b = 0;
-  if (keys.Space || mobileJump) b |= Sim.BTN.JUMP;
+  if (keys.Space || touch.jump) b |= Sim.BTN.JUMP;
   if (dashQueued) { b |= Sim.BTN.DASH; dashQueued = false; }
   if (reloadQueued) { b |= Sim.BTN.RELOAD; reloadQueued = false; }
-  const firing = (mouseDown && pointerLocked) || mobileFire;
+  const firing = (mouseDown && pointerLocked) || (touch.fire && local.alive) || testFire;
   if (firing) b |= Sim.BTN.FIRE;
   if (aimDown) b |= Sim.BTN.ADS;
   const input = { s: ++local.seq, mx: Math.round(mx * 100) / 100, mz: Math.round(mz * 100) / 100, yaw: aimYaw(), pitch: aimPitch(), b };
@@ -524,6 +519,8 @@ function frame() {
   fpsAcc += dt; fpsFrames++; if (fpsAcc > 0.5) { fps = Math.round(fpsFrames / fpsAcc); fpsAcc = 0; fpsFrames = 0; }
 
   if (phase === 'playing') {
+    // touch ADS is a toggle button; drop it (and any held buttons) while dead
+    if (isTouch) { if (!local.alive && (touch.aim || touch.fire)) { touch.release(); touch.setAim(false); } aimDown = touch.aim; }
     local.acc += dt;
     let steps = 0;
     while (local.acc >= Sim.DT && steps < 8) { local.acc -= Sim.DT; simTick(); steps++; }
@@ -602,7 +599,7 @@ async function boot() {
   $('loadStatus').textContent = `Graphics: ${qualityName.toUpperCase()} · ${renderer.capabilities.isWebGL2 ? 'WebGL 2' : 'WebGL'} ready`;
   $('createBtn').disabled = $('showJoinBtn').disabled = false;
   // debugging / automated-test hooks (do not grant anything the server would not accept from a normal client)
-  window.__NAB = { renderer, scene, camera, world, fx, weapon, audio, local, remotes, avatars, socket, Sim, input: { fire: v => { mobileFire = v; }, aim: v => { aimDown = v; } }, setFreeCam: v => { freeCam = v; } };
+  window.__NAB = { renderer, scene, camera, world, fx, weapon, audio, local, remotes, avatars, socket, Sim, input: { fire: v => { testFire = v; }, aim: v => { aimDown = v; } }, touch, setFreeCam: v => { freeCam = v; } };
 }
 requestAnimationFrame(frame);
 boot().catch(err => { console.error(err); $('loadStatus').textContent = 'Failed to initialise graphics: ' + err.message; });

@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#050710">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <title>NEON ARENA: BLACKOUT</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Orbitron:wght@400;600;700;800&family=Rajdhani:wght@400;500;600;700&display=swap">
@@ -35,7 +41,8 @@
       <label>Mouse sensitivity <input id="sensRange" type="range" min="0.4" max="3" step="0.05"></label>
       <label>Master volume <input id="volRange" type="range" min="0" max="1" step="0.05"></label>
     </details>
-    <p class="small">WASD MOVE · MOUSE AIM · LMB FIRE (HOLD) · RMB AIM · R RELOAD<br>SPACE JUMP · SHIFT DASH · Q SHIELD · E SCAN · F INSPECT · TAB SCORES</p>
+    <p class="small touchHint">LEFT THUMB MOVE · RIGHT THUMB AIM · HOLD FIRE (DRAG TO TRACK) · ADS TOGGLE<br>TAP ⟳ RELOAD · ▲ JUMP · DASH / SHLD / SCAN ABILITIES · ☰ SCORES</p>
+    <p class="small keyHint">WASD MOVE · MOUSE AIM · LMB FIRE (HOLD) · RMB AIM · R RELOAD<br>SPACE JUMP · SHIFT DASH · Q SHIELD · E SCAN · F INSPECT · TAB SCORES</p>
     <p id="loadStatus" class="small dim"></p>
   </div>
 </div>
@@ -88,7 +95,26 @@
   <div id="scoreboard" class="scoreboard hidden"><div class="panel wide-panel"><div class="eyebrow">ARENA STANDINGS</div><div id="scoreRows"></div></div></div>
 </div>
 
-<div id="mobileControls"><div id="stick" class="stick"><div id="knob" class="knob"></div></div><div id="lookZone" class="mobileLook"></div><button id="mobileFire" class="mobileFire">FIRE</button><button id="mobileJump" class="mobileJump">JUMP</button><button id="mobileReload" class="mobileReload">R</button></div>
+<!-- TOUCH CONTROLS (phones / tablets, landscape) -->
+<div id="mobileControls" class="off">
+  <div id="moveZone" class="moveZone"><div id="stickBase" class="stickBase"><div id="stickKnob" class="stickKnob"></div></div><div class="zoneHint">MOVE</div></div>
+  <div id="lookZone" class="lookZone"><div class="zoneHint">DRAG TO AIM</div></div>
+  <button id="mFire" class="mbtn mFire" aria-label="Fire"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v5M12 17v5M2 12h5M17 12h5" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg></button>
+  <button id="mAim" class="mbtn mAim" aria-label="Aim down sights"><span>ADS</span></button>
+  <button id="mJump" class="mbtn mJump" aria-label="Jump"><svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
+  <button id="mReload" class="mbtn mReload" aria-label="Reload"><svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
+  <button id="mDash" class="mbtn mAbility" aria-label="Dash"><span class="cd"></span><span>DASH</span></button>
+  <button id="mShield" class="mbtn mAbility" aria-label="Shield"><span class="cd"></span><span>SHLD</span></button>
+  <button id="mScan" class="mbtn mAbility" aria-label="Scan"><span class="cd"></span><span>SCAN</span></button>
+  <button id="mScores" class="mbtn mScores" aria-label="Scores"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2"/></svg></button>
+</div>
+<!-- shown on phones held upright -->
+<div id="rotateHint" class="rotateHint">
+  <svg viewBox="0 0 64 64" class="rotIcon"><rect x="20" y="8" width="24" height="44" rx="4" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M50 40a18 18 0 0 1-18 16" fill="none" stroke="currentColor" stroke-width="2.5"/><path d="M33 51l-2 5 5 1" fill="none" stroke="currentColor" stroke-width="2.5"/></svg>
+  <h2>ROTATE YOUR PHONE</h2>
+  <p>Neon Arena plays in landscape.</p>
+  <button id="goLandscape">Go fullscreen</button>
+</div>
 
 <!-- RESULTS -->
 <div id="results" class="modalOverlay hidden">

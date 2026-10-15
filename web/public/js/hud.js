@@ -37,8 +37,11 @@ export class Hud {
   timer(t) { this.set('timer', t, v => { $('timer').textContent = `${String(Math.floor(v / 60)).padStart(2, '0')}:${String(v % 60).padStart(2, '0')}`; }); }
   net(text) { this.set('net', text, v => { $('netStats').textContent = v; }); }
   ability(id, cdFrac, active) {
-    this.set(id + 'cd', Math.round(cdFrac * 50), v => { $(id).style.setProperty('--cd', (v / 50).toFixed(2)); $(id).classList.toggle('ready', v === 0); });
-    this.set(id + 'on', active, v => $(id).classList.toggle('active', v));
+    const m = $({ dashBtn: 'mDash', shieldBtn: 'mShield', scanBtn: 'mScan' }[id]); // matching touch button
+    this.set(id + 'cd', Math.round(cdFrac * 50), v => {
+      for (const el of [$(id), m]) if (el) { el.style.setProperty('--cd', (v / 50).toFixed(2)); el.classList.toggle('ready', v === 0); }
+    });
+    this.set(id + 'on', active, v => { for (const el of [$(id), m]) if (el) el.classList.toggle('active', v); });
   }
   crosshair(spread, ads) {
     this.gap += (6 + spread - this.gap) * 0.35;

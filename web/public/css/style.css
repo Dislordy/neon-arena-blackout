@@ -113,16 +113,7 @@ h1 span{color:var(--pink)}
 .modalOverlay{position:absolute;inset:0;background:rgba(1,4,12,.72);z-index:8;display:flex;align-items:center;justify-content:center}
 .resultrow{display:grid;grid-template-columns:32px 1fr 60px;gap:8px;padding:9px;border-bottom:1px solid #243448}
 .resultrow:first-child{color:var(--lime)}
-#mobileControls{display:none;position:absolute;inset:0;pointer-events:none;z-index:5}
-.stick{position:absolute;bottom:75px;left:35px;width:110px;height:110px;border:1px solid #00f5ff77;border-radius:50%;background:#06112077;pointer-events:auto;touch-action:none}
-.knob{position:absolute;left:35px;top:35px;width:40px;height:40px;border-radius:50%;background:#00f5ff55;border:1px solid var(--cyan)}
-.mobileFire{position:absolute;right:28px;bottom:82px;border-radius:50%;width:75px;height:75px;padding:0;pointer-events:auto;touch-action:none}
-.mobileJump{position:absolute;right:35px;bottom:170px;pointer-events:auto;padding:11px}
-.mobileReload{position:absolute;right:115px;bottom:95px;pointer-events:auto;padding:11px;border-radius:50%}
-.mobileLook{position:absolute;right:0;top:18%;width:50%;height:55%;pointer-events:auto;touch-action:none}
 @media(max-width:700px){.panel{padding:23px}.topbar{top:8px;left:8px;right:8px}.hudbox{padding:7px 9px;min-width:78px}.hudvalue{font-size:18px}.healthbar{width:100px}.leaderboard{top:85px;right:8px;width:138px;padding:7px}.bottomleft{left:9px;bottom:10px;min-width:0}.ammopips,.reloadbar{width:130px}.bottomright{right:8px;bottom:10px;gap:4px}.ability{min-width:54px;padding:7px 5px}.hint{display:none}#feed{left:9px;top:82px;max-width:48%}}
-@media(pointer:coarse){#mobileControls{display:block}}
-#mobileControls.off{display:none!important}
 
 /* ---------------------------------------------------------------------------
    Megacity HUD theme: hot red + electric yellow + ice cyan, angled panels,
@@ -172,3 +163,84 @@ button:hover{background:var(--yellow);color:#111;box-shadow:0 0 22px rgba(252,23
 @keyframes dsfade{0%{opacity:0}35%{opacity:0}100%{opacity:1}}
 @keyframes dszoom{from{transform:scale(1.12);letter-spacing:.3em}to{transform:scale(1);letter-spacing:.18em}}
 #gameHud.dead .crosshair,#gameHud.dead .hitmarker{opacity:0!important}
+
+/* ===========================================================================
+   Touch / mobile (landscape). Everything here only applies to touch screens.
+   =========================================================================== */
+#mobileControls{display:none;position:fixed;inset:0;z-index:6;pointer-events:none;-webkit-user-select:none;user-select:none}
+#mobileControls.off{display:none!important}
+@media (pointer:coarse){ #mobileControls{display:block} }
+.moveZone,.lookZone{position:absolute;top:64px;bottom:0;pointer-events:auto;touch-action:none}
+.moveZone{left:0;width:42%}
+.lookZone{left:42%;right:0}
+.zoneHint{position:absolute;bottom:14px;font:600 9px Orbitron,sans-serif;letter-spacing:3px;color:rgba(255,255,255,.18);pointer-events:none}
+.moveZone .zoneHint{left:calc(24px + env(safe-area-inset-left))}
+.lookZone .zoneHint{left:50%;transform:translateX(-50%);bottom:auto;top:40%}
+.stickBase{position:absolute;left:0;top:0;width:120px;height:120px;border-radius:50%;opacity:0;transition:opacity .12s;
+  border:2px solid rgba(94,246,255,.45);background:radial-gradient(circle,rgba(94,246,255,.08),rgba(5,7,16,.35) 70%);box-shadow:0 0 18px rgba(94,246,255,.15)}
+.stickBase.on{opacity:1}
+.stickKnob{position:absolute;left:36px;top:36px;width:48px;height:48px;border-radius:50%;background:rgba(94,246,255,.35);border:2px solid var(--cyan);box-shadow:0 0 14px rgba(94,246,255,.5)}
+.mbtn{position:absolute;pointer-events:auto;touch-action:none;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;
+  background:rgba(10,4,12,.45);border:2px solid rgba(255,95,86,.55);color:#fff;font:700 10px Orbitron,sans-serif;letter-spacing:1px;
+  clip-path:none;backdrop-filter:blur(3px);-webkit-tap-highlight-color:transparent;overflow:hidden}
+.mbtn svg{width:58%;height:58%}
+.mbtn.down{background:rgba(255,95,86,.45);transform:scale(.93)}
+.mbtn:hover{background:rgba(10,4,12,.45);color:#fff;box-shadow:none}
+.mFire{right:calc(22px + env(safe-area-inset-right));bottom:24px;width:92px;height:92px;border-color:var(--red);color:var(--red);box-shadow:0 0 22px rgba(255,95,86,.35)}
+.mFire.down{background:rgba(255,95,86,.55);color:#fff}
+.mJump{right:calc(30px + env(safe-area-inset-right));bottom:130px;width:58px;height:58px;border-color:rgba(94,246,255,.6);color:var(--cyan)}
+.mAim{right:calc(126px + env(safe-area-inset-right));bottom:26px;width:60px;height:60px;border-color:rgba(94,246,255,.6);color:var(--cyan)}
+.mAim.active{background:rgba(94,246,255,.35);color:#fff}
+.mReload{right:calc(122px + env(safe-area-inset-right));bottom:100px;width:50px;height:50px;border-color:rgba(252,238,10,.6);color:var(--yellow)}
+.mAbility{width:50px;height:50px;font-size:8px;border-color:rgba(252,238,10,.5);color:var(--yellow)}
+.mAbility span:not(.cd){position:relative}
+.mAbility .cd{position:absolute;inset:0;background:rgba(0,0,0,.7);transform-origin:bottom;transform:scaleY(var(--cd,0))}
+.mAbility.active{border-color:var(--lime);box-shadow:0 0 14px rgba(182,255,74,.5)}
+#mDash{right:calc(200px + env(safe-area-inset-right));bottom:26px}
+#mShield{right:calc(190px + env(safe-area-inset-right));bottom:86px}
+#mScan{right:calc(174px + env(safe-area-inset-right));bottom:144px}
+.mScores{top:10px;left:calc(50% + 74px);width:38px;height:38px;border-color:rgba(255,255,255,.25);color:#ccc}
+
+/* compact HUD on touch screens */
+@media (pointer:coarse){
+  .topbar{top:6px;left:calc(8px + env(safe-area-inset-left));right:calc(8px + env(safe-area-inset-right))}
+  .hudbox{padding:5px 9px;min-width:0}
+  .hudlabel{font-size:7px;letter-spacing:1.5px}
+  .hudvalue{font-size:16px}
+  .healthbar{width:110px;height:6px}
+  .netstats{display:none}
+  .leaderboard,.bottomright,.hint{display:none}
+  #feed{left:calc(10px + env(safe-area-inset-left));top:66px;font-size:11px;max-width:38%}
+  .bottomleft{left:50%;transform:translateX(-50%);bottom:8px;min-width:0;text-align:center}
+  .bottomleft .hudlabel{display:none}
+  .ammo{font-size:22px}
+  .ammopips{width:140px;margin:2px auto}
+  .reloadbar{width:140px;margin:2px auto}
+  .crosshair{transform:scale(.9)}
+  .killbanner{top:24%;font-size:11px}
+  .killbanner .pts{font-size:17px}
+  .notice{top:20%;font-size:10px}
+  .deathscreen h2{font-size:clamp(34px,9vw,64px)}
+  .panel{padding:18px 20px}
+  #scoreboard{z-index:7}
+}
+/* short landscape screens: let menus fit */
+@media (max-height:500px){
+  .panel{padding:14px 18px;max-height:96vh}
+  h1{font-size:26px;margin:6px 0 4px}
+  .sub{font-size:13px;margin-bottom:10px}
+  .field{padding:9px 12px;font-size:15px}
+  button{padding:10px 14px}
+  .brandline{margin-bottom:8px}
+}
+.touchHint{display:none}
+@media (pointer:coarse){ .touchHint{display:block} .keyHint{display:none} }
+
+/* rotate-your-phone screen (touch devices held upright) */
+.rotateHint{display:none;position:fixed;inset:0;z-index:60;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;
+  background:radial-gradient(circle at 50% 40%,rgba(40,10,30,.96),rgba(3,3,8,.98));color:#fff;padding:24px}
+.rotateHint h2{font:800 20px Orbitron,sans-serif;letter-spacing:3px;color:var(--yellow);margin:6px 0 0}
+.rotateHint p{color:#b9c2d0;margin:0 0 8px}
+.rotIcon{width:96px;height:96px;color:var(--cyan);animation:rot 2.2s ease-in-out infinite}
+@keyframes rot{0%,20%{transform:rotate(0)}50%,80%{transform:rotate(-90deg)}100%{transform:rotate(0)}}
+@media (pointer:coarse) and (orientation:portrait){ .rotateHint{display:flex} }

@@ -1,5 +1,14 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.3 — Mobile
+- Landscape play: tapping Create/Join on a phone goes fullscreen and locks the screen sideways (Android Chrome);
+  phones held upright see a "Rotate your phone" screen. Web app manifest (landscape, fullscreen) for Add to Home Screen.
+- New touch controls: floating joystick that appears under your left thumb, drag anywhere on the right to aim,
+  big FIRE button you can also drag to keep aiming while shooting, ADS toggle, jump, reload, and
+  Dash / Shield / Scan buttons with live cooldown rings. Short vibrations on fire and taps.
+- Compact phone HUD: smaller top bar, ammo at the bottom centre, leaderboard and keyboard hints hidden,
+  notch-safe button placement, touch control hints on the menu. Low graphics picked automatically.
+
 ## V4.2 — Realistic gunfire
 - VX-9 shot rebuilt the way a real rifle sounds: supersonic N-wave crack, saturated muzzle blast, low thump from
   filtered noise (no synth "boing"), bolt carrier back/forward clacks, short air boom; faint electrical crackle.

@@ -1,0 +1,11 @@
+{
+  "name": "Neon Arena: Blackout",
+  "short_name": "Neon Arena",
+  "description": "Cyberpunk multiplayer FPS in a rain-soaked neon city.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#050710",
+  "theme_color": "#050710",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
