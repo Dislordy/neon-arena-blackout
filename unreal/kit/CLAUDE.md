@@ -64,9 +64,18 @@ V2 uses **meters, Y-up**; Unreal uses **centimeters, Z-up**. Conversion: `UE_X =
 | V2 | Behavior |
 |---|---|
 | Dash (Shift) | 19 m/s burst for 0.22 s, 5 s cooldown |
-| Shield (Q) | 2.2 s, damage × 0.3, 9 s cooldown |
+| Shield (Q) | 2.2 s, damage × 0.3, 9 s cooldown; also instantly refills the energy shield (V4.5) |
 | Scan (E) | reveals enemies through walls 1.4 s, 12 s cooldown |
 | Match | 4 min, up to 8 players, free-for-all; kill 100 pts, headshot kill 125 |
+
+### Classes (added in web V4.5)
+| Class | HP | Speed | Dash | Weapon |
+|---|---|---|---|---|
+| Soldier | 100 | 6.2 m/s | 1 charge, 5 s | VX-9 rifle |
+| Assassin | 85 | 6.7 m/s | 3 charges, each refills in 2.8 s, 0.27 s between dashes | VX-9 rifle |
+| Knight | 130 | 6.0 m/s | 1 charge, 5 s | Greatsword: 60 dmg, 0.55 s swing, 2.7 m reach, ~40° cone, small lunge. Every kill turns it into a shotgun: 6 shells, 8 pellets, 0.065 rad spread, 13/20/10 dmg per pellet (body/head/legs), full to 8 m then down to 25% at 25 m, 0.8 s pump; folds back into the sword when empty |
+
+Everyone has a 50-point energy shield that takes damage before health and refills at 25/s after 3.5 s without damage.
 
 ### Look
 Rain, wet puddle reflections, height fog + light shafts, magenta-tinted smog, neon signs (incl. vertical katakana signs),

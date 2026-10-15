@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
+import { buildSword, buildShotgun, emberMaterial } from './classgear.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const Sim = window.NeonSim;
@@ -39,6 +40,8 @@ export class Weapon {
     this.gun = new THREE.Group(); this.root.add(this.gun);
     this.buildRifle();
     this.buildArms();
+    this.buildKnightGear();
+    this.mode = 'rifle'; this.swingT = -1; this.swingDir = 1; this.pumpT = -1; this.surge = 0;
 
     this.recoilZ = new Spring(220, 22); this.recoilRot = new Spring(160, 16); this.recoilYaw = new Spring(140, 14); this.recoilRoll = new Spring(120, 12);
     this.landY = new Spring(120, 14);
@@ -57,7 +60,7 @@ export class Weapon {
     G.add(rifle.group);
     const metal = rifle.mats.metal;
     const box = (w, h, d, m, x, y, z, rx = 0) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); o.position.set(x, y, z); o.rotation.x = rx; G.add(o); return o; };
-    this.muzzle = rifle.muzzle; this.mag = rifle.mag; this.magHome = rifle.magHome;
+    this.muzzle = rifle.muzzle; this.mag = rifle.mag; this.magHome = rifle.magHome; this.rifleMuzzle = rifle.muzzle;
     this.handle = rifle.handle; this.handleHome = rifle.handleHome; this.coils = rifle.coils; this.cell = rifle.cell;
     // dangling charm on the sling point: a little neon skull on a chain (simple pendulum)
     this.charm = new THREE.Group(); rifle.charmPivot.add(this.charm);
@@ -94,7 +97,7 @@ export class Weapon {
     const front = new THREE.Mesh(new THREE.PlaneGeometry(0.2, 0.2), fm); front.position.z = -0.02; this.flashGroup.add(front);
     this.flashFront = front;
     this.flashGroup.visible = false;
-    this.ejectPort = rifle.ejectPort;
+    this.ejectPort = rifle.ejectPort; this.rifleEject = rifle.ejectPort;
     G.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
   }
 
@@ -142,10 +145,59 @@ export class Weapon {
       return g;
     };
     const finish = g => { g.traverse(o => { if (o.isMesh) o.frustumCulled = false; }); return g; };
+    this.makeCyberArm = () => finish(cyberArm()); this.makeGauntlet = () => finish(gauntlet());
     this.rightArm = finish(cyberArm()); this.rightArm.position.set(0.0, -0.09, 0.08); this.rightArm.rotation.set(0.35, 0.25, 0); this.gun.add(this.rightArm);
     this.leftArm = finish(gauntlet()); this.leftHome = new THREE.Vector3(-0.005, -0.045, -0.36); this.leftArm.position.copy(this.leftHome);
     this.leftArm.rotation.set(0.25, -0.55, 0.3); this.leftHomeRot = this.leftArm.rotation.clone(); this.gun.add(this.leftArm);
   }
+
+  /** Knight: greatsword (one-handed, Souls-style) and the shotgun it transforms into. */
+  buildKnightGear() {
+    this.ember = emberMaterial(1.7); this.emberBase = this.ember.color.clone();
+    // ---- greatsword
+    this.swordRig = new THREE.Group(); this.root.add(this.swordRig);
+    this.swordHome = new THREE.Vector3(0.14, -0.1, 0.02);
+    this.swordRest = [0, 0, 0, -0.95, 0.15, 0.16];
+    this.swordPivot = new THREE.Group(); this.swordPivot.position.copy(this.swordHome); this.swordRig.add(this.swordPivot);
+    this.sword = buildSword({ glow: this.ember });
+    this.sword.group.position.y = 0.06; this.sword.group.scale.setScalar(0.74); this.swordPivot.add(this.sword.group);
+    this.swordArm = this.makeCyberArm(); this.swordArm.position.copy(this.swordHome); this.swordArm.rotation.set(0.5, 0.3, 0); this.swordRig.add(this.swordArm);
+    // slash arc: an ember ribbon that flashes along the swing
+    const ac = document.createElement('canvas'); ac.width = 256; ac.height = 16;
+    const ax = ac.getContext('2d'), gr = ax.createLinearGradient(0, 0, 256, 0);
+    gr.addColorStop(0, 'rgba(255,90,31,0)'); gr.addColorStop(0.7, 'rgba(255,140,60,.55)'); gr.addColorStop(1, 'rgba(255,230,200,1)');
+    ax.fillStyle = gr; ax.fillRect(0, 0, 256, 16);
+    const at = new THREE.CanvasTexture(ac); at.colorSpace = THREE.SRGBColorSpace;
+    // the arc is the path of the sword tip around the hand: from straight up (80 deg) to down-left (200 deg)
+    const A0 = 1.4, AL = 2.1;
+    const arcGeo = new THREE.RingGeometry(0.4, 0.5, 40, 1, A0, AL);
+    const uv = arcGeo.attributes.uv, pos = arcGeo.attributes.position; // u runs along the arc: bright head at the end
+    for (let i = 0; i < uv.count; i++) { let a = Math.atan2(pos.getY(i), pos.getX(i)); if (a < 0) a += Math.PI * 2; uv.setXY(i, (a - A0) / AL, 0.5); }
+    this.slashArc = new THREE.Mesh(arcGeo, new THREE.MeshBasicMaterial({ map: at, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, color: new THREE.Color(1.6, 1.3, 1.1), opacity: 0 }));
+    this.slashArc.frustumCulled = false; this.slashArc.visible = false; this.scene.add(this.slashArc);
+    // ---- shotgun
+    this.shotgunRig = new THREE.Group(); this.root.add(this.shotgunRig);
+    this.sg = buildShotgun({ glow: this.ember }); this.shotgunRig.add(this.sg.group);
+    const ra = this.makeCyberArm(); ra.position.set(0.0, -0.11, 0.1); ra.rotation.set(0.4, 0.25, 0); this.shotgunRig.add(ra);
+    const la = this.makeGauntlet(); la.position.set(-0.01, -0.035, 0.02); la.rotation.set(0.25, -0.55, 0.3); this.sg.pump.add(la);
+    this.adsShotgun = new THREE.Vector3(0, -0.05, -0.34);
+    this.swordRig.visible = this.shotgunRig.visible = false;
+  }
+
+  /** 'rifle' | 'sword' | 'shotgun' */
+  setMode(mode) {
+    if (mode === this.mode) return;
+    const prev = this.mode; this.mode = mode;
+    this.gun.visible = mode === 'rifle'; this.swordRig.visible = mode === 'sword'; this.shotgunRig.visible = mode === 'shotgun';
+    const host = mode === 'shotgun' ? this.sg : null;
+    if (host) { this.muzzle = host.muzzle; this.ejectPort = host.ejectPort; host.group.add(this.flashGroup); this.flashGroup.position.copy(host.muzzle.position); }
+    else { this.muzzle = this.rifleMuzzle; this.ejectPort = this.rifleEject; this.gun.add(this.flashGroup); this.flashGroup.position.copy(this.rifleMuzzle.position); }
+    this.swingT = -1; this.pumpT = -1; this.inspectT = -1; this.slashArc.visible = false;
+    if (prev !== 'rifle' || mode !== 'rifle') { this.equip = 0; if (mode === 'shotgun' || prev === 'shotgun') this.surge = 1; }
+  }
+
+  /** Greatsword swing (alternates forehand / backhand). */
+  swing() { this.swingT = 0; this.swingDir = -this.swingDir; this.inspectT = -1; }
 
   drawAmmo(ammo, reloading) {
     const c = this.ammoCanvas.getContext('2d');
@@ -161,6 +213,15 @@ export class Weapon {
   }
 
   fire(aiming) {
+    if (this.mode === 'shotgun') {
+      const k = aiming ? 0.7 : 1;
+      this.recoilZ.kick(3.4 * k); this.recoilRot.kick((13 + Math.random() * 3) * k);
+      this.recoilYaw.kick((Math.random() - 0.5) * 4 * k); this.recoilRoll.kick((Math.random() - 0.5) * 10 * k);
+      this.flash = 0.07; this.flashGroup.visible = true; this.flashGroup.rotation.z = Math.random() * Math.PI;
+      this.flashGroup.scale.setScalar(1.3 + Math.random() * 0.4); this.flashLight.intensity = 6;
+      this.pumpT = 0; this.surge = Math.min(1, this.surge + 0.6); this.inspectT = -1;
+      return;
+    }
     const k = aiming ? 0.55 : 1;
     this.recoilZ.kick(1.6 * k);
     this.recoilRot.kick((5 + Math.random() * 2) * k);
@@ -195,12 +256,15 @@ export class Weapon {
    */
   update(s) {
     const dt = s.dt;
+    if (s.mode) this.setMode(s.mode);
+    const rifle = this.mode === 'rifle';
     // ammo display
-    const reloading = s.reloadTicks > 0;
+    const reloading = rifle && s.reloadTicks > 0;
     const key = s.ammo * 2 + (reloading ? 1 : 0);
-    if (key !== this.lastAmmo) { this.lastAmmo = key; this.drawAmmo(s.ammo, reloading); }
+    if (rifle && key !== this.lastAmmo) { this.lastAmmo = key; this.drawAmmo(s.ammo, reloading); }
+    if (this.mode === 'shotgun') this.sg.lamps.forEach((l, i) => { l.visible = i < s.ammo; });
 
-    this.aim = lerp(this.aim, s.aiming && !reloading && s.alive ? 1 : 0, 1 - Math.exp(-dt * 14));
+    this.aim = lerp(this.aim, s.aiming && !reloading && s.alive && this.mode !== 'sword' ? 1 : 0, 1 - Math.exp(-dt * 14));
     this.equip = Math.min(1, this.equip + dt * 2.2);
     this.lowerT = lerp(this.lowerT, s.alive ? 0 : 1, 1 - Math.exp(-dt * 6));
     const aimK = 1 - this.aim * 0.85;
@@ -222,8 +286,13 @@ export class Weapon {
     let rlT = -1;
     if (reloading) rlT = 1 - s.reloadTicks / Sim.RELOAD_TICKS;
     this.animateReload(rlT);
+    if (this.mode === 'sword') this.animateSwing(dt);
+    if (this.mode === 'shotgun') this.animatePump(dt);
+    // ember glow surges on transformation and shotgun blasts
+    this.surge = Math.max(0, this.surge - dt * 1.8);
+    this.ember.color.copy(this.emberBase).multiplyScalar(1 + this.surge * 2.5 + Math.sin(performance.now() * 0.005) * 0.1);
 
-    const base = new THREE.Vector3().lerpVectors(this.hip, this.ads, ease(this.aim));
+    const base = new THREE.Vector3().lerpVectors(this.hip, this.mode === 'shotgun' ? this.adsShotgun : this.ads, ease(this.aim));
     const tiltIn = rlT >= 0 ? ease(seg(rlT, 0, 0.15)) * (1 - ease(seg(rlT, 0.82, 1))) : 0;
     const dashTilt = s.dashing ? 1 : 0;
     this.dashT = lerp(this.dashT || 0, dashTilt, 1 - Math.exp(-dt * 12));
@@ -278,9 +347,51 @@ export class Weapon {
     this.flashLight.intensity = Math.max(0, this.flashLight.intensity - dt * 70);
     this.flashLight.position.set(this.root.position.x, this.root.position.y + 0.05, this.root.position.z - 0.6);
     this.reticle.material.opacity = 0.3 + this.aim * 0.7;
+    this.reticle.visible = rifle;
     this.root.visible = this.lowerT < 0.97;
     // FOV for ADS (viewmodel camera)
     this.camera.fov = lerp(60, 48, this.aim); this.camera.updateProjectionMatrix();
+  }
+
+  animateSwing(dt) {
+    const P = this.swordPivot;
+    let v = this.swordRest;
+    if (this.swingT >= 0) {
+      this.swingT += dt / (Sim.SWORD_TICKS * Sim.DT);
+      const R = this.swordRest;
+      const K = this.swingDir > 0
+        ? [[0, R], [0.14, [0.05, 0.07, 0.04, 0.3, 0.2, -0.55]], [0.32, [-0.24, -0.14, -0.14, -1.75, -0.3, 1.35]], [0.5, [-0.2, -0.1, -0.1, -1.5, -0.2, 1.2]], [1, R]]
+        : [[0, R], [0.14, [-0.12, 0.05, 0.02, 0.1, -0.2, 1.3]], [0.32, [0.14, -0.12, -0.14, -1.6, 0.3, -0.9]], [0.5, [0.12, -0.1, -0.1, -1.4, 0.2, -0.8]], [1, R]];
+      const t = Math.min(1, this.swingT);
+      let i = 0; while (i < K.length - 2 && t > K[i + 1][0]) i++;
+      const k = ease(seg(t, K[i][0], K[i + 1][0]));
+      v = K[i][1].map((x, j) => lerp(x, K[i + 1][1][j], k));
+      // slash arc shows during the fast part of the swing
+      const arcK = seg(t, 0.17, 0.25) * (1 - seg(t, 0.32, 0.46));
+      this.slashArc.visible = arcK > 0.01;
+      this.slashArc.material.opacity = arcK;
+      // centred on the sword hand (lower right for a forehand, mirrored for a backhand)
+      this.slashArc.position.set(this.swingDir > 0 ? 0.24 : -0.24, -0.3, -0.85);
+      this.slashArc.rotation.set(0.15, 0, 0);
+      this.slashArc.scale.set(this.swingDir > 0 ? 1 : -1, 1, 1);
+      if (this.swingT >= 1) { this.swingT = -1; this.slashArc.visible = false; }
+    }
+    P.position.set(this.swordHome.x + v[0], this.swordHome.y + v[1], this.swordHome.z + v[2]);
+    P.rotation.set(v[3], v[4], v[5]);
+    // the forearm follows the wrist part-way
+    this.swordArm.position.copy(P.position);
+    this.swordArm.rotation.set(0.5 + (v[3] - this.swordRest[3]) * 0.35, 0.3 + v[4] * 0.4, (v[5] - this.swordRest[5]) * 0.3);
+  }
+
+  animatePump(dt) {
+    const pump = this.sg.pump;
+    if (this.pumpT < 0) { pump.position.copy(this.sg.pumpHome); return; }
+    const prev = this.pumpT;
+    this.pumpT += dt / (Sim.SHOTGUN_TICKS * Sim.DT);
+    if (prev < 0.4 && this.pumpT >= 0.4 && this.events.pump) this.events.pump();
+    const back = ease(seg(this.pumpT, 0.25, 0.42)) * (1 - ease(seg(this.pumpT, 0.5, 0.68)));
+    pump.position.set(this.sg.pumpHome.x, this.sg.pumpHome.y, this.sg.pumpHome.z + back * 0.08);
+    if (this.pumpT >= 1) this.pumpT = -1;
   }
 
   animateReload(t) {

@@ -18,6 +18,8 @@ The project has **two tracks** in one repository:
 | V2.2 | Cyber-knight runners, machined VX-9 rifle (extruded model, charm, inspect on F), ember death, "FLATLINED" screen |
 | V3 (Build 3) | Unreal/Lyra plan + starter kit (inventory script, V2 map export, carry-over spec) |
 | **V4 (Build 4)** | **This repo**: both tracks unified, web hosting via `render.yaml`, Chromebook launcher `web/scripts/play.sh` |
+| V4.1–V4.4 | Audio remix, realistic gunfire, mobile landscape + touch HUD, in-game ☰ menu |
+| V4.5 | Classes: Soldier / Assassin (3 dash charges) / Knight (greatsword → shotgun on kill, 130 HP); regenerating energy shields |
 
 Details: `CHANGELOG.md`.
 
@@ -38,13 +40,16 @@ cd web && npm install && npm start     # http://localhost:3000
 npm test                               # sim unit tests + server integration tests (must pass)
 ./scripts/play.sh                      # start + public ngrok link (Chromebook)
 ```
-- `shared/sim.js` — **single source of truth** for movement, collision, map boxes, weapon timings, ray casts and damage.
+- `shared/sim.js` — **single source of truth** for movement, collision, map boxes, classes (`CLASSES`), weapon timings, ray casts and damage.
+  Shotgun pellets are seeded by the input sequence number (`pelletDirs`) so client and server agree.
   Loaded by the server (`require`) and the browser (`<script>`, `window.NeonSim`). Any map/gameplay change goes here first.
 - `server.js` — authoritative: clients send only inputs; server runs 60 Hz ticks, owns position/ammo/HP/score,
   lag compensation (≤300 ms rewind), input-budget anti-speedhack, 30 Hz snapshots.
 - `public/js/` — `main.js` (input, prediction/reconciliation, interpolation, loop), `world.js` (arena, lights, reflections, fog),
-  `nightcity.js` (megacity dressing), `textures.js` (procedural PBR), `effects.js`, `weapon.js` + `gunmodel.js` (VX-9),
-  `avatar.js` (cyber-knights), `audio.js` (procedural HRTF audio), `post.js`, `hud.js`.
+  `nightcity.js` (megacity dressing), `textures.js` (procedural PBR), `effects.js`, `weapon.js` + `gunmodel.js` (VX-9)
+  + `classgear.js` (knight greatsword / shotgun), `avatar.js` (one look per class), `audio.js` (procedural HRTF audio), `post.js`,
+  `hud.js`, `touch.js` (phone controls).
+- `NAB_DEBUG=1` enables a test-only `debug` socket event (teleport, grant shotgun). Never set it on Render.
 - Quality presets live in `public/js/main.js` (`PRESETS`); `?quality=low|medium|high|ultra` forces one.
 - Verify visual changes with headless Chromium + SwiftShader (Playwright) and check for console errors at Low/Medium/High.
 - Hosting: `render.yaml` (root) deploys `web/` on Render's free plan; the server honours `PORT`.

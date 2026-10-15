@@ -56,6 +56,9 @@
     <div id="roomCode" class="roomcode">------</div>
     <button id="copyBtn" class="wide">Copy room code</button>
     <div id="lobbyPlayers" class="players"></div>
+    <div class="eyebrow pickTitle">CHOOSE YOUR CLASS</div>
+    <div class="classPick" data-picker></div>
+    <p class="small">Every class has a 50-point energy shield that recharges when you stay out of fire for a few seconds.</p>
     <p id="lobbyHint" class="small">Waiting for another player to connect…</p>
     <button id="startBtn" class="wide" disabled>Start match — need 2 players</button>
     <button id="leaveBtn" class="wide">Leave room</button>
@@ -65,7 +68,7 @@
 <!-- IN-GAME HUD -->
 <div id="gameHud" class="hidden">
   <div class="topbar">
-    <div class="hudbox"><div class="hudlabel">VITALS</div><div class="hudvalue"><span id="hp">100</span><span class="hudlabel"> HP</span></div><div class="healthbar"><div id="healthFill" class="healthfill"></div><div id="healthGhost" class="healthghost"></div></div><div id="netStats" class="netstats"></div></div>
+    <div class="hudbox"><div class="hudlabel">VITALS · <span id="className">SOLDIER</span></div><div class="hudvalue"><span id="hp">100</span><span class="hudlabel"> HP</span> <span id="sh" class="shval">50</span><span class="hudlabel"> SH</span></div><div class="shieldbar"><div id="shieldFill" class="shieldfill"></div></div><div class="healthbar"><div id="healthFill" class="healthfill"></div><div id="healthGhost" class="healthghost"></div></div><div id="netStats" class="netstats"></div></div>
     <div class="hudcenter"><div class="hudbox center"><div class="hudlabel">BLACKOUT IN</div><div id="timer" class="hudvalue cyan">04:00</div></div><button id="menuBtn" class="menuBtn" aria-label="Menu" title="Menu (Esc)"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2"/></svg></button></div>
     <div class="hudbox right"><div class="hudlabel">YOUR SCORE</div><div id="score" class="hudvalue pink">000</div></div>
   </div>
@@ -80,14 +83,14 @@
   <div id="killBanner" class="killbanner"></div>
 
   <div class="bottomleft">
-    <div class="hudlabel">VX-9 ENERGY RIFLE</div>
+    <div id="weaponName" class="hudlabel">VX-9 ENERGY RIFLE</div>
     <div class="ammo"><span id="ammo">24</span><span class="ammomax"> / 24</span></div>
     <div id="ammoPips" class="ammopips"></div>
     <div class="reloadbar"><div id="reloadFill"></div></div>
     <div id="weaponStatus" class="hint">CLICK TO LOCK AIM</div>
   </div>
   <div class="bottomright">
-    <button class="ability" id="dashBtn"><span class="cd"></span><b>SHIFT</b>DASH</button>
+    <button class="ability" id="dashBtn"><span class="cd"></span><b>SHIFT</b>DASH<i class="charges" data-charges></i></button>
     <button class="ability" id="shieldBtn"><span class="cd"></span><b>Q</b>SHIELD</button>
     <button class="ability" id="scanBtn"><span class="cd"></span><b>E</b>SCAN</button>
   </div>
@@ -103,7 +106,7 @@
   <button id="mAim" class="mbtn mAim" aria-label="Aim down sights"><span>ADS</span></button>
   <button id="mJump" class="mbtn mJump" aria-label="Jump"><svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></button>
   <button id="mReload" class="mbtn mReload" aria-label="Reload"><svg viewBox="0 0 24 24"><path d="M19 12a7 7 0 1 1-2.05-4.95M19 4v4h-4" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
-  <button id="mDash" class="mbtn mAbility" aria-label="Dash"><span class="cd"></span><span>DASH</span></button>
+  <button id="mDash" class="mbtn mAbility" aria-label="Dash"><span class="cd"></span><span>DASH</span></button><i id="mDashCharges" class="charges mcharges" data-charges></i>
   <button id="mShield" class="mbtn mAbility" aria-label="Shield"><span class="cd"></span><span>SHLD</span></button>
   <button id="mScan" class="mbtn mAbility" aria-label="Scan"><span class="cd"></span><span>SCAN</span></button>
 </div>
@@ -126,6 +129,7 @@
       <button id="soundBtn" class="soundBtn" aria-pressed="true"><svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" fill="currentColor"/><path class="waves" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="cross" d="M16 9l6 6M22 9l-6 6" stroke="currentColor" stroke-width="1.8"/></svg><span id="soundLabel">Sound: on</span></button>
       <input id="menuVol" type="range" min="0" max="1" step="0.05" aria-label="Volume">
     </div>
+    <div class="menuClass"><div class="small">CLASS <span class="dim">· changes on your next respawn</span></div><div class="classPick mini" data-picker></div></div>
     <button id="menuScoresBtn" class="wide">Scoreboard</button>
     <button id="exitBtn" class="wide danger">Exit match</button>
   </div>

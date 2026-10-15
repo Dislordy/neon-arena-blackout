@@ -1,11 +1,14 @@
-// Third-person runners as dark "cyber-knights": battle-worn plate armour, hooded great helm
-// with a glowing visor slit, tattered cloak and tabard that react to wind and motion,
-// a chrome cyberware right arm, and the VX-9 rifle. Procedural walk / strafe / jump,
-// idle breathing, hit flinches, a collapse-and-dissolve death, shield bubble, x-ray ghost.
+// Third-person runners, one look per class:
+//   SOLDIER  — tactical cyber-trooper: visored helmet, chest rig, shoulder pads, VX-9 rifle
+//   ASSASSIN — slim, deep hood and mask with glowing eyes, long tattered cloak, VX-9 rifle
+//   KNIGHT   — heavy plate, horned great helm, twin pauldrons, tabard + cloak, greatsword / shotgun
+// Cloth reacts to wind and motion. Procedural walk / strafe / jump, idle breathing, hit flinches,
+// sword swings, a collapse-and-dissolve death, shield bubble, x-ray ghost.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
+import { buildSword, buildShotgun, emberMaterial } from './classgear.js';
 
 let shared = null;
 function sharedAssets() {
@@ -88,8 +91,10 @@ function clothMaterial(maps, tint, uniforms, { tattered = false, rimColor = null
 }
 
 export class Avatar {
-  constructor(color, name) {
+  constructor(color, name, cls = 0) {
     const S = sharedAssets();
+    this.cls = cls;
+    const knight = cls === 2, assassin = cls === 1, soldier = !knight && !assassin;
     this.color = new THREE.Color(color);
     this.glow = new THREE.MeshBasicMaterial({ color: this.color.clone().multiplyScalar(3) });
     this.glowSoft = new THREE.MeshBasicMaterial({ color: this.color.clone().multiplyScalar(1.4) });
@@ -104,6 +109,8 @@ export class Avatar {
 
     const g = this.group = new THREE.Group();
     this.body = new THREE.Group(); g.add(this.body); // rotated as a whole by the death animation
+    this.frame = new THREE.Group(); this.body.add(this.frame); // class build (broad knight, slim assassin)
+    if (knight) this.frame.scale.set(1.07, 1.04, 1.07); else if (assassin) this.frame.scale.set(0.92, 1.0, 0.92);
     const add = (parent, geo, mat, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
       const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
       m.castShadow = true; m.receiveShadow = true; parent.add(m); return m;
@@ -113,27 +120,43 @@ export class Avatar {
     const dome = (r, scale) => { const geo = new THREE.SphereGeometry(r, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2); geo.scale(...scale); return geo; };
 
     // ---------------- hips, belt, tabard and legs
-    this.hips = new THREE.Group(); this.hips.position.y = 0.95; this.body.add(this.hips);
+    this.hips = new THREE.Group(); this.hips.position.y = 0.95; this.frame.add(this.hips);
     add(this.hips, rbox(0.34, 0.16, 0.22, 0.05), suit);
     const belt = add(this.hips, cyl(0.2, 0.2, 0.055, 20, true), S.leather, 0, 0.05, 0); belt.scale.z = 0.66;
     add(this.hips, rbox(0.07, 0.06, 0.02, 0.01), S.gold, 0, 0.05, -0.135);
     add(this.hips, rbox(0.06, 0.07, 0.05, 0.01), S.leather, 0.17, 0.0, -0.02); // pouch
-    const tabard = add(this.hips, new THREE.PlaneGeometry(0.22, 0.55, 2, 8).translate(0, -0.275, 0), tabardMat, 0, 0.02, -0.13);
-    tabard.castShadow = false;
-    const tabardBack = add(this.hips, new THREE.PlaneGeometry(0.26, 0.6, 2, 8).translate(0, -0.3, 0), tabardMat, 0, 0.02, 0.12, 0, Math.PI, 0);
-    tabardBack.castShadow = false;
+    if (knight) {
+      const tabard = add(this.hips, new THREE.PlaneGeometry(0.22, 0.55, 2, 8).translate(0, -0.275, 0), tabardMat, 0, 0.02, -0.13);
+      tabard.castShadow = false;
+      const tabardBack = add(this.hips, new THREE.PlaneGeometry(0.26, 0.6, 2, 8).translate(0, -0.3, 0), tabardMat, 0, 0.02, 0.12, 0, Math.PI, 0);
+      tabardBack.castShadow = false;
+    } else if (soldier) {
+      for (const sx of [-0.12, 0.12]) add(this.hips, rbox(0.08, 0.09, 0.05, 0.01), S.leather, sx, -0.02, -0.12); // thigh pouches
+    } else {
+      // assassin: a short split loincloth and a dagger at the small of the back
+      const lc = add(this.hips, new THREE.PlaneGeometry(0.16, 0.4, 2, 6).translate(0, -0.2, 0), tabardMat, 0, 0.02, -0.12); lc.castShadow = false;
+      add(this.hips, rbox(0.03, 0.03, 0.3, 0.008), S.dark, 0, 0.05, 0.14, 0, Math.PI / 2, 0.3);
+      add(this.hips, new THREE.BoxGeometry(0.24, 0.006, 0.01), this.glow, 0, 0.05, 0.155, 0, 0, 0.3);
+    }
     this.legs = [];
     for (const side of [-1, 1]) {
       const hip = new THREE.Group(); hip.position.set(side * 0.11, -0.05, 0); this.hips.add(hip);
       add(hip, cyl(0.085, 0.07, 0.44), suit, 0, -0.22, 0);
-      add(hip, rbox(0.15, 0.2, 0.035, 0.012), plate, 0, -0.1, -0.085, 0.12);          // front tasset
-      add(hip, rbox(0.035, 0.18, 0.13, 0.012), plate, side * 0.085, -0.09, 0, 0, 0, side * 0.12); // side tasset
+      if (knight) {
+        add(hip, rbox(0.15, 0.2, 0.035, 0.012), plate, 0, -0.1, -0.085, 0.12);          // front tasset
+        add(hip, rbox(0.035, 0.18, 0.13, 0.012), plate, side * 0.085, -0.09, 0, 0, 0, side * 0.12); // side tasset
+      } else if (soldier) add(hip, rbox(0.11, 0.16, 0.03, 0.01), plate, 0, -0.14, -0.08, 0.1); // thigh plate
       const knee = new THREE.Group(); knee.position.y = -0.44; hip.add(knee);
       add(knee, new THREE.SphereGeometry(0.07, 12, 8), plate, 0, 0, -0.03, 0, 0, 0, 1, 1, 0.8); // knee cop
       add(knee, rbox(0.05, 0.06, 0.012, 0.005), plate, side * 0.06, 0, -0.03, 0, side * 0.5, 0); // cop wing
       add(knee, cyl(0.07, 0.055, 0.42), suit, 0, -0.21, 0);
-      add(knee, rbox(0.105, 0.32, 0.115, 0.04), plate, 0, -0.19, -0.015); // greave
-      add(knee, rbox(0.12, 0.085, 0.25, 0.03), plate, 0, -0.435, -0.05);  // sabaton
+      if (assassin) { // wrapped shins and soft boots
+        for (let i = 0; i < 4; i++) add(knee, cyl(0.062, 0.058, 0.03, 10), S.leather, 0, -0.08 - i * 0.07, 0);
+        add(knee, rbox(0.1, 0.07, 0.22, 0.03), S.dark, 0, -0.44, -0.04);
+      } else {
+        add(knee, rbox(0.105, 0.32, 0.115, 0.04), plate, 0, -0.19, -0.015); // greave
+        add(knee, rbox(0.12, 0.085, 0.25, 0.03), plate, 0, -0.435, -0.05);  // sabaton
+      }
       add(knee, rbox(0.1, 0.03, 0.06, 0.012), plate, 0, -0.42, -0.165, 0.3);
       add(knee, rbox(0.012, 0.18, 0.01, 0.004), this.glow, side * 0.055, -0.19, -0.075); // neon inlay
       this.legs.push({ hip, knee });
@@ -142,44 +165,90 @@ export class Avatar {
     // ---------------- torso (pitches with aim)
     this.torso = new THREE.Group(); this.torso.position.y = 0.06; this.hips.add(this.torso);
     add(this.torso, rbox(0.38, 0.44, 0.24, 0.06), suit, 0, 0.26, 0);
-    add(this.torso, rbox(0.44, 0.32, 0.17, 0.07), plate, 0, 0.33, -0.055, 0.06);           // breastplate
-    add(this.torso, rbox(0.022, 0.27, 0.025, 0.008), plate, 0, 0.33, -0.142, 0.06);          // central ridge
-    add(this.torso, new THREE.BoxGeometry(0.42, 0.012, 0.014), S.gold, 0, 0.175, -0.13);
-    for (let i = 0; i < 3; i++) add(this.torso, rbox(0.37 - i * 0.02, 0.065, 0.21, 0.025), plate, 0, 0.14 - i * 0.055, -0.015); // faulds
-    add(this.torso, rbox(0.4, 0.34, 0.08, 0.03), plate, 0, 0.32, 0.11);                      // backplate
     for (let i = 0; i < 4; i++) add(this.torso, rbox(0.04, 0.035, 0.03, 0.008), this.glow, 0, 0.42 - i * 0.07, 0.155); // cyber spine
-    add(this.torso, cyl(0.12, 0.16, 0.09, 16), plate, 0, 0.53, 0);                           // gorget
-    add(this.torso, cyl(0.15, 0.23, 0.12, 18, true), suit, 0, 0.5, 0.02);                     // hood mantle
-    // left: heavy layered pauldron with gilded rim; right: chrome cyberware shoulder
-    const lp = new THREE.Group(); lp.position.set(-0.26, 0.48, 0); lp.rotation.z = 0.35; this.torso.add(lp);
-    // overlapping lames: each one a little wider and lower so they read as a layered spaulder
-    add(lp, dome(0.15, [1.25, 0.8, 1.15]), plate);
-    add(lp, dome(0.15, [1.32, 0.42, 1.2]), plate, -0.012, -0.04, 0, 0, 0, 0.12);
-    add(lp, dome(0.15, [1.38, 0.32, 1.25]), plate, -0.024, -0.075, 0, 0, 0, 0.24);
-    add(lp, new THREE.TorusGeometry(0.19, 0.008, 6, 24), S.gold, 0, 0.0, 0, Math.PI / 2, 0, 0, 1, 0.93, 1);
-    const rs = add(this.torso, new THREE.SphereGeometry(0.085, 14, 10), chrome, 0.25, 0.47, 0);
-    add(this.torso, new THREE.TorusGeometry(0.09, 0.006, 6, 20), this.glow, 0.25, 0.47, 0, 0, Math.PI / 2, 0);
-    // tattered cloak hanging from the shoulders
-    const capeGeo = new THREE.PlaneGeometry(0.6, 1.2, 6, 14).translate(0, -0.6, 0);
-    const cp = capeGeo.attributes.position;
-    for (let i = 0; i < cp.count; i++) { const hang = -cp.getY(i) / 1.2; cp.setX(i, cp.getX(i) * (0.62 + 0.45 * hang)); cp.setZ(i, Math.abs(cp.getX(i)) * -0.25 * (1 - hang)); }
-    capeGeo.computeVertexNormals();
-    this.cape = add(this.torso, capeGeo, capeMat, 0, 0.5, 0.2, 0.06);
-    this.cape.castShadow = false;
+    const pauldron = (side, big) => { // overlapping lames, each a little wider and lower, with a gilded rim
+      const lp = new THREE.Group(); lp.position.set(side * 0.26, 0.48, 0); lp.rotation.z = -side * 0.35; this.torso.add(lp);
+      const k = big ? 1.12 : 1;
+      add(lp, dome(0.15 * k, [1.25, 0.8, 1.15]), plate);
+      add(lp, dome(0.15 * k, [1.32, 0.42, 1.2]), plate, side * 0.012, -0.04, 0, 0, 0, -side * 0.12);
+      add(lp, dome(0.15 * k, [1.38, 0.32, 1.25]), plate, side * 0.024, -0.075, 0, 0, 0, -side * 0.24);
+      add(lp, new THREE.TorusGeometry(0.19 * k, 0.008, 6, 24), S.gold, 0, 0.0, 0, Math.PI / 2, 0, 0, 1, 0.93, 1);
+      if (big) for (const z of [-0.06, 0.06]) add(lp, new THREE.ConeGeometry(0.02, 0.09, 6), S.dark, side * 0.02, 0.12, z); // spikes
+      return lp;
+    };
+    const chromeShoulder = () => {
+      add(this.torso, new THREE.SphereGeometry(0.085, 14, 10), chrome, 0.25, 0.47, 0);
+      add(this.torso, new THREE.TorusGeometry(0.09, 0.006, 6, 20), this.glow, 0.25, 0.47, 0, 0, Math.PI / 2, 0);
+    };
+    const cloak = (len, width) => { // tattered cloak hanging from the shoulders
+      const capeGeo = new THREE.PlaneGeometry(width, len, 6, 14).translate(0, -len / 2, 0);
+      const cp = capeGeo.attributes.position;
+      for (let i = 0; i < cp.count; i++) { const hang = -cp.getY(i) / len; cp.setX(i, cp.getX(i) * (0.62 + 0.45 * hang)); cp.setZ(i, Math.abs(cp.getX(i)) * -0.25 * (1 - hang)); }
+      capeGeo.computeVertexNormals();
+      this.cape = add(this.torso, capeGeo, capeMat, 0, 0.5, 0.2, 0.06);
+      this.cape.castShadow = false;
+    };
+    if (knight) {
+      add(this.torso, rbox(0.46, 0.33, 0.18, 0.07), plate, 0, 0.33, -0.055, 0.06);           // breastplate
+      add(this.torso, rbox(0.022, 0.27, 0.025, 0.008), plate, 0, 0.33, -0.147, 0.06);          // central ridge
+      add(this.torso, new THREE.BoxGeometry(0.44, 0.012, 0.014), S.gold, 0, 0.175, -0.135);
+      for (let i = 0; i < 3; i++) add(this.torso, rbox(0.37 - i * 0.02, 0.065, 0.21, 0.025), plate, 0, 0.14 - i * 0.055, -0.015); // faulds
+      add(this.torso, rbox(0.42, 0.34, 0.08, 0.03), plate, 0, 0.32, 0.11);                     // backplate
+      add(this.torso, cyl(0.12, 0.16, 0.09, 16), plate, 0, 0.53, 0);                          // gorget
+      pauldron(-1, true); pauldron(1, true);
+      cloak(1.2, 0.62);
+    } else if (soldier) {
+      add(this.torso, rbox(0.42, 0.3, 0.2, 0.05), plate, 0, 0.3, -0.03);                      // armoured vest
+      for (const x of [-0.12, 0, 0.12]) add(this.torso, rbox(0.085, 0.1, 0.05, 0.012), S.leather, x, 0.22, -0.14); // mag pouches
+      add(this.torso, new THREE.BoxGeometry(0.3, 0.012, 0.012), this.glow, 0, 0.42, -0.135);   // status strip
+      add(this.torso, rbox(0.2, 0.26, 0.09, 0.03), S.dark, 0, 0.3, 0.14);                     // power pack
+      add(this.torso, cyl(0.012, 0.012, 0.22, 8), this.glow, 0.07, 0.32, 0.19);
+      add(this.torso, cyl(0.12, 0.15, 0.08, 16), suit, 0, 0.52, 0);                           // collar
+      for (const side of [-1, 1]) add(this.torso, rbox(0.15, 0.08, 0.18, 0.035), plate, side * 0.26, 0.47, 0, 0, 0, -side * 0.35); // shoulder pads
+    } else {
+      add(this.torso, rbox(0.36, 0.3, 0.2, 0.06), S.leather, 0, 0.3, -0.03);                  // leather jerkin
+      add(this.torso, new THREE.BoxGeometry(0.05, 0.5, 0.012), S.dark, 0, 0.3, -0.135, 0, 0, 0.6); // cross strap
+      add(this.torso, new THREE.BoxGeometry(0.008, 0.46, 0.006), this.glow, 0, 0.3, -0.142, 0, 0, 0.6);
+      add(this.torso, cyl(0.15, 0.24, 0.14, 18, true), suit, 0, 0.5, 0.02);                    // hood mantle / scarf
+      chromeShoulder();
+      add(this.torso, rbox(0.12, 0.1, 0.14, 0.04), suit, -0.25, 0.46, 0, 0, 0, 0.35);          // wrapped left shoulder
+      cloak(1.45, 0.66);
+    }
 
     // ---------------- head: hooded great helm with a neon visor slit
     this.head = new THREE.Group(); this.head.position.y = 0.58; this.torso.add(this.head);
     add(this.head, cyl(0.06, 0.07, 0.08), S.dark, 0, -0.04, 0);
-    add(this.head, cyl(0.13, 0.14, 0.2, 18), plate, 0, 0.06, 0);
-    add(this.head, dome(0.13, [1, 0.7, 1]), plate, 0, 0.16, 0);
-    add(this.head, rbox(0.2, 0.17, 0.05, 0.02), plate, 0, 0.05, -0.12);                       // face plate
-    add(this.head, rbox(0.02, 0.17, 0.03, 0.008), plate, 0, 0.06, -0.15);                      // nasal ridge
-    add(this.head, new THREE.BoxGeometry(0.16, 0.012, 0.01), this.glow, 0, 0.085, -0.148);      // visor slit
-    for (let i = 0; i < 3; i++) for (const s of [-1, 1]) add(this.head, new THREE.BoxGeometry(0.012, 0.004, 0.006), S.dark, s * (0.03 + i * 0.02), 0.01, -0.147); // breaths
+    const hood = (deep) => add(this.head, new THREE.SphereGeometry(0.165, 18, 12, Math.PI * 1.72, Math.PI * 1.56, 0, Math.PI * (deep ? 0.68 : 0.6)), suit, 0, 0.075, deep ? 0.0 : 0.025, -0.15, 0, 0, deep ? 1.08 : 1.0, deep ? 1.2 : 1.1, deep ? 1.25 : 1.12);
+    if (knight) { // horned great helm with a neon visor slit
+      add(this.head, cyl(0.135, 0.145, 0.21, 18), plate, 0, 0.06, 0);
+      add(this.head, dome(0.135, [1, 0.75, 1]), plate, 0, 0.165, 0);
+      add(this.head, rbox(0.21, 0.18, 0.05, 0.02), plate, 0, 0.05, -0.125);                     // face plate
+      add(this.head, rbox(0.02, 0.18, 0.03, 0.008), plate, 0, 0.06, -0.155);                    // nasal ridge
+      add(this.head, new THREE.BoxGeometry(0.17, 0.012, 0.01), this.glow, 0, 0.085, -0.153);    // visor slit
+      for (let i = 0; i < 3; i++) for (const s of [-1, 1]) add(this.head, new THREE.BoxGeometry(0.012, 0.004, 0.006), S.dark, s * (0.03 + i * 0.02), 0.01, -0.152); // breaths
+      add(this.head, rbox(0.025, 0.06, 0.24, 0.01), S.gold, 0, 0.25, 0);                        // crest
+      for (const s of [-1, 1]) { // curved horns
+        const horn = new THREE.Group(); horn.position.set(s * 0.13, 0.15, 0); horn.rotation.z = -s * 0.9; this.head.add(horn);
+        add(horn, new THREE.ConeGeometry(0.03, 0.2, 8), S.dark, 0, 0.1, 0);
+        add(horn, new THREE.ConeGeometry(0.018, 0.12, 6), S.dark, 0, 0.24, 0.03, 0.5);
+      }
+    } else if (soldier) { // tactical helmet: rounded shell, wide visor band, rebreather
+      add(this.head, dome(0.14, [1.05, 0.95, 1.1]), plate, 0, 0.07, 0.005);
+      add(this.head, cyl(0.145, 0.145, 0.06, 20, true), plate, 0, 0.06, 0.005);
+      add(this.head, rbox(0.2, 0.055, 0.04, 0.015), S.dark, 0, 0.075, -0.125);                  // visor housing
+      add(this.head, new THREE.BoxGeometry(0.18, 0.026, 0.008), this.glow, 0, 0.075, -0.147);   // visor
+      add(this.head, rbox(0.11, 0.08, 0.07, 0.025), S.dark, 0, -0.005, -0.1);                   // rebreather
+      for (const s of [-1, 1]) add(this.head, cyl(0.025, 0.025, 0.03, 10), chrome, s * 0.065, -0.01, -0.11, Math.PI / 2, 0, 0);
+      add(this.head, cyl(0.006, 0.006, 0.18, 6), S.dark, -0.1, 0.2, 0.06, 0.2);                 // antenna
+      add(this.head, new THREE.SphereGeometry(0.01, 6, 4), this.glow, -0.1, 0.29, 0.08);
+    } else { // assassin: cloth face mask under a deep hood, two glowing eyes
+      add(this.head, new THREE.SphereGeometry(0.12, 16, 12), S.dark, 0, 0.07, 0, 0, 0, 0, 0.95, 1.08, 1.0);
+      add(this.head, rbox(0.17, 0.09, 0.05, 0.02), suit, 0, 0.0, -0.1);                         // mask
+      for (const s of [-1, 1]) add(this.head, new THREE.BoxGeometry(0.035, 0.01, 0.008), this.glow, s * 0.042, 0.085, -0.115, 0, 0, s * -0.25); // eyes
+      hood(true);
+    }
     add(this.head, cyl(0.012, 0.012, 0.05, 8), chrome, 0.14, 0.06, 0.02, 0, 0, Math.PI / 2);   // neural jack
     add(this.head, new THREE.SphereGeometry(0.008, 6, 4), this.glow, 0.168, 0.06, 0.02);
-    const hood = new THREE.SphereGeometry(0.165, 18, 12, Math.PI * 1.72, Math.PI * 1.56, 0, Math.PI * 0.6);
-    add(this.head, hood, suit, 0, 0.075, 0.025, -0.15, 0, 0, 1.0, 1.1, 1.12);
 
     // ---------------- arms + rifle
     this.armsG = new THREE.Group(); this.armsG.position.y = 0.42; this.torso.add(this.armsG);
@@ -194,14 +263,34 @@ export class Avatar {
       if (cyber) add(el, new THREE.TorusGeometry(0.05, 0.005, 6, 16), this.glow, 0, -0.06, 0, Math.PI / 2);
       else add(el, rbox(0.085, 0.2, 0.085, 0.025), plate, 0, -0.15, 0);  // vambrace
       add(el, rbox(0.075, 0.085, 0.095, 0.02), cyber ? chrome : plate, 0, -0.3, 0); // hand / gauntlet
-      return sh;
+      const hand = new THREE.Object3D(); hand.position.y = -0.3; el.add(hand);
+      return { sh, el, hand };
     };
-    arm(1, [1.05, 0, -0.12], [0.55, 0, 0], true);
-    arm(-1, [1.3, 0, 0.55], [0.3, 0, 0], false);
-    const rifle = buildRifle({ energy: this.glow, lite: true });
-    this.rifle = rifle.group; this.rifle.position.set(0.08, -0.2, -0.3); this.armsG.add(this.rifle);
-    this.rifle.traverse(o => { if (o.isMesh) o.castShadow = true; });
-    this.muzzle = rifle.muzzle;
+    this.rArm = arm(1, [1.05, 0, -0.12], [0.55, 0, 0], true);
+    this.lArm = arm(-1, [1.3, 0, 0.55], [0.3, 0, 0], false);
+    // arm poses: holding a long gun, or the greatsword raised in a guard
+    this.poses = {
+      gun: { r: [1.05, 0, -0.12, 0.55], l: [1.3, 0, 0.55, 0.3] },
+      sword: { r: [0.5, 0, -0.55, 0.7], l: [0.25, 0, 0.25, 0.5] }
+    };
+    if (knight) {
+      this.ember = emberMaterial(2.4);
+      const sw = buildSword({ glow: this.ember, lite: true });
+      this.sword = sw.group; this.sword.position.set(0, -0.03, 0); this.sword.rotation.set(-Math.PI / 2 - 0.55, 0, 0.7);
+      this.rArm.hand.add(this.sword);
+      const sg = buildShotgun({ glow: this.ember, lite: true });
+      this.shotgun = sg.group; this.shotgun.position.set(0.08, -0.2, -0.3); this.armsG.add(this.shotgun);
+      this.sgMuzzle = sg.muzzle;
+      this.shotgun.visible = false;
+      this.muzzle = sg.muzzle;
+      this.setPose('sword');
+    } else {
+      const rifle = buildRifle({ energy: this.glow, lite: true });
+      this.rifle = rifle.group; this.rifle.position.set(0.08, -0.2, -0.3); this.armsG.add(this.rifle);
+      this.muzzle = rifle.muzzle;
+    }
+    this.armsG.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    this.gunMode = !knight; this.swingT = -1; this.swingSide = 1;
 
     // shield bubble, x-ray ghost, name tag
     this.shield = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), shieldShader(this.color));
@@ -216,6 +305,21 @@ export class Avatar {
     this.speed = 0; this.flinchT = 0; this.flinchSide = 0; this.deathT = -1; this.wasAlive = true;
     this.onDissolve = null; // set by the game to spawn embers when a body dissolves
   }
+
+  setPose(name) {
+    const P = this.poses[name];
+    this.rArm.sh.rotation.set(P.r[0], P.r[1], P.r[2]); this.rArm.el.rotation.x = P.r[3];
+    this.lArm.sh.rotation.set(P.l[0], P.l[1], P.l[2]); this.lArm.el.rotation.x = P.l[3];
+    this.pose = name;
+  }
+  /** Knight: switch between greatsword (false) and shotgun (true). */
+  setShotgun(on) {
+    if (this.cls !== 2 || this.gunMode === on) return;
+    this.gunMode = on; this.sword.visible = !on; this.shotgun.visible = on;
+    this.setPose(on ? 'gun' : 'sword');
+  }
+  /** Greatsword swing (third person). */
+  swing() { this.swingT = 0; this.swingSide = -this.swingSide; }
 
   /** Small hit reaction; dir is the shot direction in world space (optional). */
   flinch(dir) {
@@ -284,6 +388,17 @@ export class Avatar {
     this.torso.rotation.x = st.pitch * 0.55 - 0.05 * k - (st.dash ? 0.25 : 0) + fl * 0.25;
     this.head.rotation.x = st.pitch * 0.35 - fl * 0.2;
     this.armsG.rotation.x = st.pitch * 0.45; // arms + rifle carry the rest of the aim pitch
+    if (this.cls === 2) this.setShotgun(!!st.shotgun);
+    if (this.swingT >= 0) { // raise, cut across, recover
+      this.swingT += dt / 0.5;
+      const t = Math.min(1, this.swingT), up = Math.sin(Math.min(1, t / 0.25) * Math.PI / 2) * (1 - Math.min(1, Math.max(0, (t - 0.25) / 0.15)));
+      const cut = Math.min(1, Math.max(0, (t - 0.22) / 0.15)) * (1 - Math.min(1, Math.max(0, (t - 0.5) / 0.5)));
+      const P = this.poses.sword.r;
+      this.rArm.sh.rotation.set(P[0] + up * 1.6 - cut * 0.5, P[1] + cut * 0.6 * this.swingSide, P[2] - up * 0.4 * this.swingSide + cut * 0.7 * this.swingSide);
+      this.rArm.el.rotation.x = P[3] - up * 0.5 + cut * 0.3;
+      this.torso.rotation.y += cut * 0.45 * this.swingSide - up * 0.2 * this.swingSide;
+      if (this.swingT >= 1) { this.swingT = -1; this.setPose('sword'); }
+    }
     // cloth streams back with speed (forward motion only) and flutters in the wind
     const capeTarget = Math.min(1, Math.max(0, fwd) / 6 + Math.abs(side) / 12) + (st.dash ? 0.8 : 0) + this.airBlend * 0.4;
     this.uniforms.uSpeed.value += (capeTarget - this.uniforms.uSpeed.value) * (1 - Math.exp(-dt * 4));
@@ -296,12 +411,15 @@ export class Avatar {
     // spawn protection shimmer
     const prot = st.protect ? 0.5 + 0.5 * Math.sin(this.time * 18) : 1;
     this.glow.color.copy(this.color).multiplyScalar(3 * prot + (st.protect ? 1 : 0) + fl * 3);
+    if (this.ember) this.ember.color.setRGB(2.4, 0.86, 0.29).multiplyScalar(1 + Math.sin(this.time * 4) * 0.12 + (this.surge = Math.max(0, (this.surge || 0) - dt * 1.5)) * 2);
   }
+  /** Ember flare when the sword transforms. */
+  flare() { this.surge = 1; }
   muzzleWorld(out = new THREE.Vector3()) { this.group.updateMatrixWorld(true); return this.muzzle.getWorldPosition(out); }
   setXray(on) { this.ghost.visible = on; }
   dispose() {
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
-    this.glow.dispose(); this.glowSoft.dispose(); this.ownMats.forEach(m => m.dispose());
+    this.glow.dispose(); this.glowSoft.dispose(); this.ownMats.forEach(m => m.dispose()); if (this.ember) this.ember.dispose();
     this.shield.material.dispose(); this.tag.material.map.dispose(); this.tag.material.dispose();
   }
 }

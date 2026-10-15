@@ -78,7 +78,7 @@ const local = {
   sim: Sim.newPlayerState(), prev: Sim.newPlayerState(), seq: 0, pending: [], outbox: [], acc: 0,
   yaw: 0, pitch: 0, recoilPitch: 0, recoilYaw: 0, hp: 100, alive: true, errorOffset: new THREE.Vector3(),
   cd: { shield: 0, scan: 0, shieldOn: 0 }, cdAt: 0, killedBy: '', deadAt: 0, stepDist: 0, wasOg: true,
-  shotsInBurst: 0, lastFireT: 0
+  shotsInBurst: 0, lastFireT: 0, sh: 50, shRegen: false
 };
 const remotes = new Map(); // id -> { buffer: [], state, stepDist, xrayUntil, lastFlags }
 
@@ -144,6 +144,30 @@ if (isTouch) {
 }
 $('goLandscape').addEventListener('click', () => goLandscape());
 
+// ------------------------------------------------------------------ classes
+const CLASS_INFO = [
+  { blurb: 'VX-9 rifle', stats: '100 HP · 1 dash', icon: '<path d="M5 13a7 7 0 0 1 14 0v2H5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15h14M8 11h8" stroke="currentColor" stroke-width="1.8"/><path d="M9 18h6" stroke="currentColor" stroke-width="1.8"/>' },
+  { blurb: 'VX-9 rifle · fastest', stats: '85 HP · 3 dashes', icon: '<path d="M12 3c-4 3-6 7-6 11a6 6 0 0 0 12 0c0-4-2-8-6-11z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13l2 1M15 13l-2 1" stroke="currentColor" stroke-width="2"/>' },
+  { blurb: 'Greatsword · kill → shotgun', stats: '130 HP · 1 dash', icon: '<path d="M12 2l2 3v11h-4V5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 16h12M12 16v5" stroke="currentColor" stroke-width="2"/>' }
+];
+let classChoice = Sim.CLASSES[store.get('cls', 0)] ? store.get('cls', 0) : 0;
+function renderPickers() {
+  for (const box of document.querySelectorAll('[data-picker]')) {
+    if (!box.children.length) {
+      box.innerHTML = Sim.CLASSES.map((C, i) => `<button class="classCard" data-cls="${i}"><svg class="ic" viewBox="0 0 24 24">${CLASS_INFO[i].icon}</svg><b>${C.name}</b><span>${CLASS_INFO[i].blurb}</span><small>${CLASS_INFO[i].stats}</small></button>`).join('');
+      box.addEventListener('click', e => { const b = e.target.closest('.classCard'); if (b) pickClass(Number(b.dataset.cls)); });
+    }
+    for (const b of box.children) b.classList.toggle('selected', Number(b.dataset.cls) === classChoice);
+  }
+}
+function pickClass(c) {
+  if (!Sim.CLASSES[c]) return;
+  classChoice = c; store.set('cls', c); renderPickers();
+  if (myId) socket.emit('setClass', { cls: c });
+  if (phase === 'playing' && hud) hud.notice(c === local.sim.cls ? `${Sim.CLASSES[c].name}` : `${Sim.CLASSES[c].name} · ON NEXT RESPAWN`, 1400);
+}
+renderPickers();
+
 // ------------------------------------------------------------------ in-game menu (☰ / Esc)
 let menuOpen = false, menuClosing = false, exitArmed = 0;
 function openMenu() {
@@ -201,9 +225,9 @@ function connectResult(res) {
   $('lobbyHint').textContent = isHost ? 'You are the host. Start when at least two runners are connected.' : 'Connected. Waiting for the host to start.';
   setScreen('lobby'); showError('');
 }
-$('createBtn').onclick = () => socket.emit('createRoom', { name: $('nickname').value }, connectResult);
+$('createBtn').onclick = () => socket.emit('createRoom', { name: $('nickname').value, cls: classChoice }, connectResult);
 $('showJoinBtn').onclick = () => { $('joinRow').classList.toggle('hidden'); $('roomInput').focus(); };
-$('joinBtn').onclick = () => socket.emit('joinRoom', { name: $('nickname').value, code: $('roomInput').value }, connectResult);
+$('joinBtn').onclick = () => socket.emit('joinRoom', { name: $('nickname').value, code: $('roomInput').value, cls: classChoice }, connectResult);
 $('roomInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('joinBtn').click(); });
 $('nickname').addEventListener('keydown', e => { if (e.key === 'Enter') $('createBtn').click(); });
 $('nickname').value = store.get('name', 'Runner');
@@ -226,7 +250,7 @@ socket.on('state', state => {
     if (phase !== 'lobby' && phase !== 'home') setScreen('lobby');
     if (phase === 'home' && myId) setScreen('lobby');
     $('roomCode').textContent = state.code;
-    $('lobbyPlayers').innerHTML = state.players.map(p => `<div class="playerpill"><b style="color:${p.color}">◆</b>${escapeHtml(p.name)}${p.id === state.host ? ' <small style="color:#789">HOST</small>' : ''}</div>`).join('');
+    $('lobbyPlayers').innerHTML = state.players.map(p => `<div class="playerpill"><b style="color:${p.color}">◆</b>${escapeHtml(p.name)} <small style="color:var(--yellow)">${(Sim.CLASSES[p.next] || Sim.CLASSES[0]).name}</small>${p.id === state.host ? ' <small style="color:#789">HOST</small>' : ''}</div>`).join('');
     $('startBtn').disabled = state.players.length < 2;
     $('startBtn').textContent = state.players.length < 2 ? 'Start match — need 2 players' : 'Start match';
     $('lobbyHint').textContent = `${state.players.length}/8 runners connected` + (isHost ? ' · you are the host' : '');
@@ -264,6 +288,13 @@ socket.on('snap', snap => {
   if (serverOffset === null || sample > serverOffset) serverOffset = sample; else serverOffset += (sample - serverOffset) * 0.02;
   lastSnapAt = nowT;
   local.hp = snap.hp;
+  if (snap.sh !== undefined) {
+    // shield recharge cue: plays once when the shield starts refilling
+    const C = Sim.classOf(snap.me);
+    if (snap.sh > local.sh && local.sh < C.shield && !local.shRegen && local.alive) { local.shRegen = true; audio.play('shieldUp', { volume: 0.45, reverb: 0.05, bus: 'ui' }); }
+    if (snap.sh < local.sh || snap.sh >= C.shield) local.shRegen = snap.sh < C.shield && snap.sh > local.sh;
+    local.sh = snap.sh;
+  }
   local.cd = snap.cd; local.cdAt = nowT;
   reconcile(snap);
   for (const e of snap.ps) {
@@ -297,6 +328,7 @@ function reconcile(snap) {
 }
 
 socket.on('shot', shot => {
+  if (shot.w === 'sg') return remoteShotgun(shot);
   const shooter = avatars.get(shot.id);
   const end = new THREE.Vector3(...shot.e);
   const r = remotes.get(shot.id);
@@ -324,16 +356,59 @@ socket.on('shot', shot => {
   }
 });
 const impactSound = k => (k === 'floor' ? 'impactWater' : k === 'perimeter' ? 'impactConcrete' : 'impactMetal');
+const EMBER = 0xff7a3a;
+function remoteShotgun(shot) {
+  const shooter = avatars.get(shot.id), r = remotes.get(shot.id);
+  const muzzle = shooter && r && r.state && r.state.alive ? shooter.muzzleWorld(new THREE.Vector3()) : new THREE.Vector3(...shot.o);
+  const first = new THREE.Vector3(...shot.pe[0].e), dir = first.clone().sub(muzzle).normalize();
+  fx.muzzleFlash(muzzle, dir, 0xff9a50, 1.1);
+  audio.shotgunBlast(muzzle);
+  let impacts = 0;
+  for (const p of shot.pe) {
+    const end = new THREE.Vector3(...p.e);
+    fx.tracer(muzzle, end, EMBER);
+    if (p.h) { const v = avatars.get(p.h); if (v) v.flinch(dir); fx.playerHit(end, dir, v ? v.color : 0xffffff, false); }
+    else if (p.n && impacts++ < 4) fx.impact(end, p.n, p.k);
+  }
+  if (shot.pe.some(p => p.h)) audio.play('impactBody', { pos: first, volume: 0.8 });
+  else if (impacts) audio.play(impactSound(shot.pe.find(p => p.n)?.k), { pos: first, volume: 0.8 });
+}
+socket.on('swing', w => {
+  const a = avatars.get(w.id), st = remotes.get(w.id)?.state;
+  if (a) a.swing();
+  if (st) audio.swordSwing(new THREE.Vector3(st.x, st.y + 1.3, st.z));
+  if (w.h && w.p) {
+    const p = new THREE.Vector3(...w.p), v = avatars.get(w.h);
+    const dir = st ? p.clone().sub(new THREE.Vector3(st.x, p.y, st.z)).normalize() : new THREE.Vector3(0, 0, -1);
+    if (v) v.flinch(dir);
+    fx.playerHit(p, dir, EMBER, false);
+    if (w.h !== myId) audio.play('swordHit', { pos: p, volume: 1.0, reverb: 0.25 });
+  }
+});
+socket.on('transform', t => {
+  if (t.id === myId) { audio.play('transform', { volume: 0.8, reverb: 0.2 }); hud.notice('BLADE REFORGED · PYRE SHOTGUN', 1500); return; }
+  const a = avatars.get(t.id), st = remotes.get(t.id)?.state;
+  if (a) a.flare();
+  if (st) { const p = new THREE.Vector3(st.x, st.y + 1.2, st.z); audio.play('transform', { pos: p, volume: 0.9, ref: 3 }); fx.embers(p, EMBER); }
+});
+socket.on('sheathe', t => {
+  const st = t.id === myId ? local.sim : remotes.get(t.id)?.state;
+  if (t.id === myId) { audio.play('transform', { volume: 0.45, rate: 1.25, reverb: 0.1 }); hud.notice('SHELLS SPENT · BLADE RESTORED', 1200); }
+  else if (st) audio.play('transform', { pos: new THREE.Vector3(st.x, st.y + 1.2, st.z), volume: 0.5, rate: 1.25, ref: 3 });
+});
 
 socket.on('hit', h => {
   const pos = new THREE.Vector3(...h.p);
   const victim = avatars.get(h.id);
   if (victim && !h.blocked) victim.flinch(new THREE.Vector3().subVectors(pos, cameraEye()).normalize());
   if (h.blocked) { hud.hitmarker('blocked'); hud.damageNumber('IMMUNE', 'shield', pos); return; }
-  fx.playerHit(pos, new THREE.Vector3().subVectors(pos, cameraEye()).normalize(), victim ? victim.color : 0xffffff, h.part === 'head');
+  fx.playerHit(pos, new THREE.Vector3().subVectors(pos, cameraEye()).normalize(), h.w === 'sword' ? EMBER : victim ? victim.color : 0xffffff, h.part === 'head');
   hud.hitmarker(h.k ? 'kill' : h.part === 'head' ? 'head' : '');
-  hud.damageNumber(String(h.d), h.part === 'head' ? 'head' : h.shielded ? 'shield' : '', pos);
+  hud.damageNumber(String(h.d), h.part === 'head' ? 'head' : h.shielded || h.sh ? 'shield' : '', pos);
   audio.play(h.part === 'head' ? 'headshot' : 'hit', { volume: 0.55, vary: 0.02, reverb: 0, bus: 'ui' });
+  if (h.w === 'sword') audio.play('swordHit', { volume: 0.9, reverb: 0.15, vary: 0.05 });
+  if (h.sh) audio.play('shieldHit', { pos, volume: 0.6, vary: 0.08 });
+  if (h.brk) { audio.play('shieldBreak', { pos, volume: 0.8 }); hud.damageNumber('SHIELD BREAK', 'shield', pos.clone().setY(pos.y + 0.3)); }
   if (h.k) {
     setTimeout(() => audio.play('kill', { volume: 0.6, reverb: 0.1, vary: 0, bus: 'ui' }), 70);
     const name = meta?.players.find(p => p.id === h.id)?.name || 'RUNNER';
@@ -344,12 +419,16 @@ socket.on('hit', h => {
 const damage = { pulse: 0, shake: 0 };
 socket.on('hurt', h => {
   local.hp = h.hp;
-  damage.pulse = Math.min(0.8, damage.pulse + h.d / 60); damage.shake = Math.min(1, damage.shake + h.d / 40);
+  if (h.sh !== undefined) { local.sh = h.sh; local.shRegen = false; }
+  if (h.brk) { audio.play('shieldBreak', { volume: 0.7, bus: 'ui' }); hud.notice('SHIELD BROKEN', 900); }
+  else if (h.sh > 0) audio.play('shieldHit', { volume: 0.45, vary: 0.08, bus: 'ui' });
+  if (h.w === 'sword') audio.play('swordHit', { volume: 0.9, reverb: 0.1 });
+  const shieldOnly = h.sh > 0 && !h.brk; // the shield took all of it: lighter screen hit
+  damage.pulse = Math.min(0.8, damage.pulse + h.d / (shieldOnly ? 160 : 60)); damage.shake = Math.min(1, damage.shake + h.d / 40);
   const dx = h.from[0] - local.sim.x, dz = h.from[1] - local.sim.z;
   const worldAng = Math.atan2(-dx, -dz); // yaw that would face the attacker
   hud.damageDirection(-(worldAng - local.yaw));
-  audio.play('hurt', { volume: 0.7, reverb: 0.1 });
-  hud.vitals(h.hp);
+  audio.play('hurt', { volume: shieldOnly ? 0.3 : 0.7, reverb: 0.1 });
 });
 
 socket.on('killed', k => {
@@ -387,8 +466,11 @@ function syncAvatars(players) {
   const ids = new Set(players.map(p => p.id));
   for (const [id, a] of avatars) if (!ids.has(id)) { scene.remove(a.group); a.dispose(); avatars.delete(id); remotes.delete(id); }
   for (const p of players) {
-    if (p.id === myId || avatars.has(p.id)) continue;
-    const a = new Avatar(p.color, p.name);
+    if (p.id === myId) continue;
+    const old = avatars.get(p.id);
+    if (old && old.cls === (p.cls | 0)) continue;
+    if (old) { scene.remove(old.group); old.dispose(); avatars.delete(p.id); } // class changed on respawn
+    const a = new Avatar(p.color, p.name, p.cls | 0);
     a.onDissolve = (pos, color) => { fx.embers(pos, color); audio.play('respawn', { pos, volume: 0.5, rate: 0.55 }); };
     a.group.visible = false;
     scene.add(a.group); avatars.set(p.id, a);
@@ -423,13 +505,38 @@ function simTick() {
   const ev = Sim.stepPlayer(local.sim, input);
   local.pending.push(input); local.outbox.push(input);
   if (local.pending.length > 240) local.pending.shift();
-  handleLocalEvents(ev, wasOg);
+  handleLocalEvents(ev, wasOg, input);
 }
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Vector3(), _e = new THREE.Vector3();
-function handleLocalEvents(ev, wasOg) {
+function handleLocalEvents(ev, wasOg, input) {
   const s = local.sim;
-  if (ev.fire) {
+  if (ev.fire && ev.shotgun) {
+    // predicted pellets (same seeded spread as the server; the server decides damage)
+    cameraEye(_o);
+    weapon.fire(aimDown);
+    camera.updateMatrixWorld();
+    const muzzle = weapon.muzzleWorld(camera, _m).clone();
+    let impacts = 0;
+    for (const d of Sim.pelletDirs(s.yaw, s.pitch, input.s)) {
+      const wh = Sim.raycastWorld(_o, d, Sim.SHOTGUN_RANGE);
+      let endT = wh ? wh.t : Sim.SHOTGUN_RANGE, hitPlayer = false;
+      for (const r of remotes.values()) {
+        if (!r.state || !r.state.alive) continue;
+        const h = Sim.rayPlayer(_o, d, r.state, endT);
+        if (h && h.t < endT) { endT = h.t; hitPlayer = true; }
+      }
+      const end = _o.clone().addScaledVector(_d.set(d.x, d.y, d.z), endT);
+      fx.tracer(muzzle, end, 0xffa060);
+      if (!hitPlayer && wh && impacts++ < 5) fx.impact(end, wh.n, wh.kind);
+    }
+    fx.flashLight(muzzle, 0xff8a40, 18);
+    audio.shotgunBlast(null, true);
+    local.recoilPitch += (aimDown ? 0.04 : 0.065);
+    local.recoilYaw += (Math.random() - 0.5) * 0.012;
+    camShake.kick = 2.2;
+    touch.buzz(30);
+  } else if (ev.fire) {
     const now = performance.now();
     local.shotsInBurst = now - local.lastFireT < 260 ? local.shotsInBurst + 1 : 0;
     local.lastFireT = now;
@@ -460,6 +567,12 @@ function handleLocalEvents(ev, wasOg) {
     local.recoilPitch += (0.018 + Math.min(local.shotsInBurst, 8) * 0.0018) * k;
     local.recoilYaw += (Math.sin(local.shotsInBurst * 1.7) * 0.004 + (Math.random() - 0.5) * 0.004) * k;
     camShake.kick = 1;
+  }
+  if (ev.swing) {
+    weapon.swing();
+    audio.swordSwing(null, true);
+    camShake.kick = 0.6;
+    touch.buzz(12);
   }
   if (ev.dry) audio.play('dry', { volume: 0.7, reverb: 0 });
   if (ev.jump) audio.play('jump', { volume: 0.6, reverb: 0.1 });
@@ -497,7 +610,7 @@ function updateRemotes(dt) {
     const a = avatars.get(id);
     const s = sampleRemote(r, t);
     if (!a || !s) continue;
-    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32) };
+    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64) };
     // steps & dash trails
     if (st.alive && r.state && st.og) {
       r.stepDist += Math.hypot(st.x - r.state.x, st.z - r.state.z);
@@ -548,7 +661,7 @@ function updateCamera(dt, alpha) {
     roll = 0.35 * k;
   } else camera.position.set(x, camY, z);
   camera.rotation.set(pitch, yaw, roll);
-  const targetFov = (aimDown && local.alive ? 56 : 78) + camShake.dash * 10;
+  const targetFov = (aimDown && local.alive && Sim.weaponOf(s) !== 'sword' ? 56 : 78) + camShake.dash * 10;
   fovCur += (targetFov - fovCur) * (1 - Math.exp(-dt * 12));
   if (Math.abs(camera.fov - fovCur) > 0.01) { camera.fov = fovCur; camera.updateProjectionMatrix(); }
 }
@@ -586,19 +699,25 @@ function frame() {
     updateCamera(dt, local.acc / Sim.DT);
     // HUD
     const s = local.sim;
-    hud.vitals(local.hp);
-    hud.ammo(s.ammo, s.reload);
-    hud.status(!pointerLocked && !isTouch ? 'CLICK TO LOCK AIM' : !local.alive ? 'REDEPLOYING…' : s.reload > 0 ? 'RELOADING…' : s.ammo === 0 ? 'EMPTY — PRESS R' : 'VX-9 ENERGY RIFLE');
+    const C = Sim.classOf(s), wpn = Sim.weaponOf(s);
+    hud.className(C.name);
+    hud.vitals(local.hp, C.hp, local.sh, C.shield, local.shRegen);
+    hud.ammo(s.ammo, s.reload, wpn);
+    hud.status(!pointerLocked && !isTouch ? 'CLICK TO LOCK AIM' : !local.alive ? 'REDEPLOYING…'
+      : wpn === 'sword' ? 'HOLD FIRE TO SWING · KILL TO REFORGE' : wpn === 'shotgun' ? `PYRE SHOTGUN · ${s.ammo} LEFT`
+      : s.reload > 0 ? 'RELOADING…' : s.ammo === 0 ? 'EMPTY — PRESS R' : 'VX-9 ENERGY RIFLE');
     const since = now - local.cdAt;
-    hud.ability('dashBtn', s.dashCd / Sim.DASH_COOLDOWN_TICKS, s.dashT > 0);
+    // dash: dark only when no charges are left; the badge shows how many remain
+    hud.ability('dashBtn', s.dashN > 0 ? 0 : s.dashCd / C.dashRecharge, s.dashT > 0);
+    hud.dashCharges(s.dashN, C.dashes, s.dashN < C.dashes ? s.dashCd / C.dashRecharge : 0);
     hud.ability('shieldBtn', Math.max(0, local.cd.shield - since) / 9000, local.cd.shieldOn - since > 0);
     hud.ability('scanBtn', Math.max(0, local.cd.scan - since) / 12000, false);
     const moveSpread = Math.hypot(s.vx, s.vz) * 1.2 + (s.og ? 0 : 8);
-    hud.crosshair(moveSpread + local.recoilPitch * 300, aimDown && local.alive);
+    hud.crosshair(moveSpread + local.recoilPitch * 300 + (wpn === 'shotgun' ? 14 : 0), aimDown && local.alive && wpn !== 'sword');
     hud.net(`${Math.round(ping)} MS · ${fps} FPS · ${qualityName.toUpperCase()}`);
     hud.death(!local.alive, local.killedBy, Math.max(0, 2.5 - (now - local.deadAt) / 1000));
     hud.updateDamageNumbers(dt, camera);
-    weapon.update({ dt, moveSpeed: Math.hypot(s.vx, s.vz), grounded: s.og, aiming: aimDown, mouseDX, mouseDY, reloadTicks: s.reload, ammo: s.ammo, alive: local.alive, dashing: s.dashT > 0 });
+    weapon.update({ dt, moveSpeed: Math.hypot(s.vx, s.vz), grounded: s.og, aiming: aimDown, mouseDX, mouseDY, reloadTicks: s.reload, ammo: s.ammo, alive: local.alive, dashing: s.dashT > 0, mode: wpn });
     const g = post.grade.uniforms;
     g.damage.value = damage.pulse; g.lowHp.value = local.alive && local.hp <= 35 ? (35 - local.hp) / 35 * 0.8 + 0.2 : 0;
     g.dead.value += ((local.alive ? 0 : 1) - g.dead.value) * (1 - Math.exp(-dt * 4));
@@ -640,14 +759,22 @@ async function boot() {
     start: () => audio.play('magOut', { volume: 0.25, rate: 1.3, reverb: 0.05 }),
     magOut: () => audio.play('magOut', { volume: 0.55, reverb: 0.1 }),
     magIn: () => audio.play('magIn', { volume: 0.6, reverb: 0.1 }),
-    charge: () => audio.play('charge', { volume: 0.6, reverb: 0.1 })
+    charge: () => audio.play('charge', { volume: 0.6, reverb: 0.1 }),
+    pump: () => {
+      audio.play('sgPump', { volume: 0.6, reverb: 0.1 });
+      const port = weapon.ejectWorld(camera, _e), s = local.sim;
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      fx.shell(port, right.multiplyScalar(1.6 + Math.random()).addScaledVector(up, 1.8).add(new THREE.Vector3(s.vx, s.vy, s.vz)));
+    }
   };
   post = createPost(renderer, scene, camera, weapon.scene, weapon.camera, Q);
   hud = new Hud();
   // compile shaders up-front (including a throwaway avatar) to avoid hitches when the match starts
-  const warm = new Avatar('#ffffff', 'warmup'); warm.group.position.set(0, -50, 0); warm.shield.visible = true; warm.ghost.visible = true; scene.add(warm.group);
+  const warms = [0, 1, 2].map(c => { const w = new Avatar('#ffffff', 'warmup', c); w.group.position.set(c * 3, -50, 0); w.shield.visible = true; w.ghost.visible = true; if (w.shotgun) w.shotgun.visible = true; scene.add(w.group); return w; });
+  weapon.swordRig.visible = weapon.shotgunRig.visible = weapon.slashArc.visible = true;
   try { renderer.compile(scene, camera); renderer.compile(weapon.scene, weapon.camera); } catch { /* optional */ }
-  scene.remove(warm.group); warm.dispose();
+  weapon.swordRig.visible = weapon.shotgunRig.visible = weapon.slashArc.visible = false;
+  for (const w of warms) { scene.remove(w.group); w.dispose(); }
   $('loadStatus').textContent = `Graphics: ${qualityName.toUpperCase()} · ${renderer.capabilities.isWebGL2 ? 'WebGL 2' : 'WebGL'} ready`;
   $('createBtn').disabled = $('showJoinBtn').disabled = false;
   // debugging / automated-test hooks (do not grant anything the server would not accept from a normal client)

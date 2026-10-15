@@ -228,6 +228,87 @@ const designs = {
     mixInto(out, sweepSine(n, sr, 90, 30, 4), 1);
     return fadeEdges(normalize(lp(softclip(out, 2), 4000, sr), 0.85), sr);
   },
+  // ---------------------------------------------------------------- knight / class sounds
+  /** Greatsword swing: a heavy, band-swept "whoom" (air torn by a big blade) with a faint ember hiss. */
+  swordSwing(sr, v = 0) {
+    const n = Math.round(sr * 0.42), src = noise(n, 500 + v), out = new Float32Array(n);
+    let y1 = 0, y2 = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, k = Math.min(1, t / 0.32), fc = 180 + 1500 * Math.sin(Math.PI * k) ** 1.5 * (1 + v * 0.06);
+      const a = 1 - Math.exp(-TAU * fc / sr), a2 = 1 - Math.exp(-TAU * fc * 0.45 / sr);
+      y1 += a * (src[i] - y1); y2 += a2 * (y1 - y2);
+      out[i] = (y1 - y2) * Math.sin(Math.PI * k) ** 2;
+    }
+    mixInto(out, env(hp(noise(n, 510 + v), 5000, sr), sr, t => Math.exp(-((t - 0.16) ** 2) / 0.003)), 0.06);
+    return fadeEdges(normalize(out, 0.75), sr);
+  },
+  /** Blade hitting an armoured body: wet thud + bright steel ring. */
+  swordHit(sr) {
+    const n = Math.round(sr * 0.7), out = new Float32Array(n);
+    mixInto(out, env(lp(noise(n, 520), 1400, sr), sr, t => Math.min(1, t * 900) * Math.exp(-t * 30)), 1.2);
+    mixInto(out, sweepSine(n, sr, 160, 55, 22), 1.0);
+    mixInto(out, partials(n, sr, [1630, 2410, 3970, 5210], [7, 9, 12, 16], [0.5, 0.35, 0.25, 0.15]), 0.6, Math.round(sr * 0.004));
+    mixInto(out, env(hp(noise(n, 521), 3500, sr), sr, t => Math.exp(-t * 120)), 0.6);
+    return fadeOut(normalize(softclip(out, 1.6), 0.9), sr, 8);
+  },
+  /** Pyre shotgun: deeper, wider blast than the rifle with a long boom and a cracking top end. */
+  sgShot(sr, v = 0) {
+    const n = Math.round(sr * 1.0), out = new Float32Array(n);
+    const nw = Math.max(5, Math.round(sr * 0.0007));
+    for (let i = 0; i < nw * 2; i++) out[i] += (i < nw ? 1 : -1) * Math.sin(Math.PI * (i % nw) / nw);
+    mixInto(out, env(lp(noise(n, 530 + v), 5000, sr), sr, t => Math.min(1, t * 2500) * Math.exp(-t * 60)), 1.5);
+    mixInto(out, env(lp(lp(noise(n, 531 + v), 600, sr), 700, sr), sr, t => Math.min(1, t * 1200) * Math.exp(-t * 9)), 1.6);
+    mixInto(out, env(lp(lp(lp(noise(n, 532 + v), 110, sr), 95, sr), 90, sr), sr, t => Math.min(1, t * 500) * Math.exp(-t * 7)), 16);
+    softclip(out, 3.2);
+    const L = out.slice(), R = out.slice();
+    mixInto(L, env(lp(noise(n, 533 + v), 380, sr), sr, t => Math.min(1, t * 40) * Math.exp(-t * 4.5)), 0.7);
+    mixInto(R, env(lp(noise(n, 534 + v), 380, sr), sr, t => Math.min(1, t * 40) * Math.exp(-t * 4.5)), 0.7);
+    return stereoFinish(L, R, sr, 0.98);
+  },
+  /** Pump action: slide back (ratchet) then slam forward. */
+  sgPump(sr) {
+    const n = Math.round(sr * 0.34), out = new Float32Array(n);
+    const clack = (at, f1, f2, g) => {
+      const o = Math.round(sr * at);
+      mixInto(out, env(hp(noise(Math.round(sr * 0.05), 540 + at * 100), 1800, sr), sr, t => Math.exp(-t * 260)), g, o);
+      mixInto(out, partials(Math.round(sr * 0.09), sr, [f1, f2], [60, 90], [0.5, 0.3]), g * 0.5, o);
+    };
+    clack(0.0, 1250, 2900, 0.7); clack(0.03, 1900, 3400, 0.25); clack(0.17, 980, 2300, 1.0);
+    return fadeEdges(normalize(out, 0.7), sr);
+  },
+  /** Sword -> shotgun: ember roar, plates sliding and locking, a deep latch. */
+  transform(sr) {
+    const n = Math.round(sr * 0.9), out = new Float32Array(n);
+    mixInto(out, env(lp(noise(n, 550), 1200, sr), sr, t => Math.min(1, t * 6) * Math.exp(-t * 3.5)), 0.5);
+    mixInto(out, env(sweepSine(n, sr, 70, 160, 0, { k: 0.3, shape: 'saw' }), sr, t => Math.min(1, t * 8) * Math.exp(-t * 4)), 0.15);
+    for (const [at, f, g] of [[0.12, 1700, 0.5], [0.22, 2300, 0.45], [0.31, 1400, 0.6], [0.46, 900, 1.0]]) {
+      const o = Math.round(sr * at);
+      mixInto(out, env(hp(noise(Math.round(sr * 0.05), 560 + at * 100), 1500, sr), sr, t => Math.exp(-t * 220)), g * 0.7, o);
+      mixInto(out, partials(Math.round(sr * 0.14), sr, [f, f * 1.71, f * 2.43], [30, 45, 60], [0.6, 0.35, 0.2]), g * 0.5, o);
+    }
+    mixInto(out, sweepSine(Math.round(sr * 0.3), sr, 120, 45, 12), 0.9, Math.round(sr * 0.46));
+    return fadeEdges(normalize(softclip(out, 1.4), 0.8), sr);
+  },
+  /** Bullet absorbed by an energy shield: soft electric thud. */
+  shieldHit(sr) {
+    const n = Math.round(sr * 0.16), out = sweepSine(n, sr, 900, 300, 30, { k: 1.2 });
+    mixInto(out, env(hp(noise(n, 570), 2500, sr), sr, t => Math.exp(-t * 70)), 0.4);
+    return fadeEdges(normalize(out, 0.55), sr);
+  },
+  /** Shield shattered: glassy crunch + falling zap. */
+  shieldBreak(sr) {
+    const n = Math.round(sr * 0.6), out = new Float32Array(n);
+    mixInto(out, env(hp(noise(n, 580), 3000, sr), sr, t => Math.min(1, t * 2000) * Math.exp(-t * 14)), 0.8);
+    mixInto(out, partials(n, sr, [2900, 4100, 5800, 7300], [12, 15, 20, 26], [0.4, 0.35, 0.3, 0.2]), 0.6);
+    mixInto(out, sweepSine(n, sr, 1400, 120, 6, { k: 0.6, shape: 'saw' }), 0.18);
+    return fadeEdges(normalize(out, 0.75), sr);
+  },
+  /** Shield recharging: rising shimmer. */
+  shieldUp(sr) {
+    const n = Math.round(sr * 0.7), out = new Float32Array(n);
+    for (const d of [1, 1.5, 2.01]) mixInto(out, env(sweepSine(n, sr, 300 * d, 1100 * d, 0, { k: 0.15 }), sr, t => Math.min(1, t * 6) * Math.exp(-t * 4)), 0.3 / d);
+    return fadeEdges(normalize(out, 0.5), sr);
+  },
   // loops
   /** Soft stereo rain: filtered pink-ish noise, rooftop rumble and scattered droplets (no harsh hiss). */
   rain(sr) {
@@ -275,7 +356,7 @@ function loopable(b, sr) {
 // ------------------------------------------------------------------ engine
 // Mix levels (0..1). Ambience sits well under the action and ducks whenever a gun fires.
 const MIX = { ambience: 0.42, sfx: 1.0, ui: 0.85, reverb: 0.28 };
-const VARIANTS = { shot: 4, shotFar: 2, step: 6 };
+const VARIANTS = { shot: 4, shotFar: 2, step: 6, sgShot: 2, swordSwing: 3 };
 
 export class AudioEngine {
   constructor() { this.ctx = null; this.buffers = {}; this.voices = 0; this.enabled = false; this.volume = 0.8; this.muted = false; }
@@ -475,6 +556,23 @@ export class AudioEngine {
     const name = this.pick('shot');
     this.reflections(name, pos, 1.0);
     return this.play(name, { pos, volume: 1.25, reverb: 0.5, ref: 4, vary: 0.04, delay });
+  }
+  /** Knight shotgun: same physics as the rifle (speed-of-sound delay, echoes) with the heavier blast. */
+  shotgunBlast(pos, own = false) {
+    const name = this.pick('sgShot');
+    if (own) {
+      this.duck(0.2, 0.3);
+      if (this.listenerPos) this.reflections(name, this.listenerPos, 0.9);
+      return this.play(name, { volume: 1.0, reverb: 0.5, vary: 0.03 });
+    }
+    const d = this.distanceTo(pos), delay = d / 343;
+    setTimeout(() => this.duck(0.45, 0.2), delay * 1000);
+    this.reflections(name, pos, 1.1);
+    return this.play(name, { pos, volume: 1.4, reverb: 0.55, ref: 5, rolloff: 0.85, vary: 0.04, delay, lowpass: d > 24 ? 2200 : undefined });
+  }
+  swordSwing(pos, own = false) {
+    const name = this.pick('swordSwing');
+    return own ? this.play(name, { volume: 0.8, reverb: 0.15, vary: 0.06 }) : this.play(name, { pos, volume: 1.1, ref: 3, reverb: 0.25, vary: 0.06 });
   }
   /** A bullet passing close to your head: the supersonic snap arrives before the shooter's bang. */
   bulletCrack(pos) { return this.play('crack', { pos, volume: 1.1, reverb: 0.15, ref: 1.5, vary: 0.1, air: 0 }); }

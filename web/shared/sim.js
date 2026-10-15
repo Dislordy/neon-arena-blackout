@@ -41,6 +41,33 @@
 
   const BTN = { JUMP: 1, DASH: 2, FIRE: 4, RELOAD: 8, ADS: 16 };
 
+  // ---------------------------------------------------------------- classes
+  // Every runner has health + a regenerating energy shield that soaks damage first.
+  const SHIELD_REGEN_DELAY_MS = 3500;   // no damage for this long -> shield starts refilling
+  const SHIELD_REGEN_PER_S = 25;
+  const WEAPON = { RIFLE: 'rifle', SWORD: 'sword', SHOTGUN: 'shotgun' };
+  const CLASSES = [
+    { id: 0, key: 'soldier', name: 'SOLDIER', hp: 100, shield: 50, speed: MOVE_SPEED, dashes: 1, dashRecharge: DASH_COOLDOWN_TICKS, dashGap: 0, weapon: WEAPON.RIFLE },
+    // three dash charges that refill one at a time
+    { id: 1, key: 'assassin', name: 'ASSASSIN', hp: 85, shield: 50, speed: 6.7, dashes: 3, dashRecharge: Math.round(2.8 * TICK_RATE), dashGap: 16, weapon: WEAPON.RIFLE },
+    // greatsword; every kill turns it into a shotgun until the shells run out
+    { id: 2, key: 'knight', name: 'KNIGHT', hp: 130, shield: 50, speed: 6.0, dashes: 1, dashRecharge: DASH_COOLDOWN_TICKS, dashGap: 0, weapon: WEAPON.SWORD }
+  ];
+  const classOf = p => CLASSES[p && p.cls | 0] || CLASSES[0];
+
+  // Knight weapons
+  const SWORD_TICKS = 33;              // 0.55 s between swings
+  const SWORD_RANGE = 2.7;             // metres from the eye to the target's chest
+  const SWORD_ARC_COS = Math.cos(0.7); // ~40 degree half-angle cone
+  const SWORD_DAMAGE = 60;
+  const SWORD_LUNGE = 3.5;             // small forward step on each swing
+  const SHOTGUN_SHELLS = 6;
+  const SHOTGUN_TICKS = 48;            // 0.8 s pump
+  const SHOTGUN_PELLETS = 8;
+  const SHOTGUN_SPREAD = 0.065;        // radians
+  const SHOTGUN_RANGE = 35;
+  const TRANSFORM_TICKS = 24;          // sword -> shotgun transformation time (can't fire meanwhile)
+
   const ARENA_HALF = 28;               // perimeter wall centre line
   const WALL_HEIGHT = 7;
 
@@ -141,14 +168,23 @@
   // ------------------------------------------------------------------ helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-  function newPlayerState(x = 0, z = 0) {
+  function newPlayerState(x = 0, z = 0, cls = 0) {
+    const C = CLASSES[cls | 0] || CLASSES[0];
     return {
       x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, og: true, alive: true,
-      dashT: 0, dashCd: 0, ddx: 0, ddz: 0,
-      ammo: MAG_SIZE, reload: 0, fireCd: 0
+      cls: C.id, dashT: 0, dashCd: 0, dashN: C.dashes, dashGap: 0, ddx: 0, ddz: 0,
+      wpn: 0, ammo: C.weapon === WEAPON.RIFLE ? MAG_SIZE : 0, reload: 0, fireCd: 0
     };
   }
-  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'dashT', 'dashCd', 'ddx', 'ddz', 'ammo', 'reload', 'fireCd'];
+  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd'];
+  /** Which weapon is in this player's hands right now. */
+  function weaponOf(p) { const C = classOf(p); return C.weapon === WEAPON.SWORD && p.wpn === 1 ? WEAPON.SHOTGUN : C.weapon; }
+  /** Knight kill reward: the sword transforms into a loaded shotgun (a kill while holding it reloads it). */
+  function grantShotgun(p) {
+    if (classOf(p).weapon !== WEAPON.SWORD) return false;
+    p.wpn = 1; p.ammo = SHOTGUN_SHELLS; p.fireCd = Math.max(p.fireCd, TRANSFORM_TICKS); p.reload = 0;
+    return true;
+  }
   function copyState(src, dst = {}) { for (const k of SIM_KEYS) dst[k] = src[k]; return dst; }
 
   function overlaps(x, y, z, b) {
@@ -211,15 +247,21 @@
    * Returns gameplay events produced this tick (used for effects/hit detection).
    */
   function stepPlayer(p, input) {
-    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false };
+    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false };
     const yaw = Number(input.yaw), pitch = Number(input.pitch);
     if (Number.isFinite(yaw)) p.yaw = ((yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     if (Number.isFinite(pitch)) p.pitch = clamp(pitch, -1.45, 1.45);
     if (!p.alive) return ev;
     const b = input.b | 0;
 
+    const C = classOf(p), weapon = weaponOf(p);
     if (p.fireCd > 0) p.fireCd--;
-    if (p.dashCd > 0) p.dashCd--;
+    if (p.dashGap > 0) p.dashGap--;
+    // dash charges refill one at a time
+    if (p.dashN < C.dashes) {
+      if (p.dashCd > 0) p.dashCd--;
+      if (p.dashCd === 0) { p.dashN++; if (p.dashN < C.dashes) p.dashCd = C.dashRecharge; }
+    }
     if (p.reload > 0) { p.reload--; if (p.reload === 0) { p.ammo = MAG_SIZE; ev.reloaded = true; } }
 
     let mx = clamp(Number(input.mx) || 0, -1, 1), mz = clamp(Number(input.mz) || 0, -1, 1);
@@ -228,11 +270,13 @@
     const sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
     const wx = cy * mx - sy * mz, wz = -sy * mx - cy * mz;
 
-    if ((b & BTN.DASH) && p.dashCd === 0) {
+    if ((b & BTN.DASH) && p.dashN > 0 && p.dashGap === 0 && p.dashT === 0) {
       let dx = wx, dz = wz;
       const l = Math.hypot(dx, dz);
       if (l < 0.1) { dx = -sy; dz = -cy; } else { dx /= l; dz /= l; }
-      p.ddx = dx; p.ddz = dz; p.dashT = DASH_TICKS; p.dashCd = DASH_COOLDOWN_TICKS; ev.dash = true;
+      if (p.dashN === C.dashes) p.dashCd = C.dashRecharge; // start refilling
+      p.dashN--; p.dashGap = C.dashGap;
+      p.ddx = dx; p.ddz = dz; p.dashT = DASH_TICKS; ev.dash = true;
     }
     if (p.dashT > 0) {
       p.dashT--;
@@ -240,8 +284,8 @@
       if (p.dashT === 0) { p.vx *= 0.35; p.vz *= 0.35; }
     } else {
       const k = 1 - Math.exp(-(p.og ? GROUND_ACCEL : AIR_ACCEL) * DT);
-      p.vx += (wx * MOVE_SPEED - p.vx) * k;
-      p.vz += (wz * MOVE_SPEED - p.vz) * k;
+      p.vx += (wx * C.speed - p.vx) * k;
+      p.vz += (wz * C.speed - p.vz) * k;
     }
 
     const wasGrounded = p.og;
@@ -262,10 +306,20 @@
     const lim = ARENA_HALF - 0.5 - PLAYER_RADIUS;
     p.x = clamp(p.x, -lim, lim); p.z = clamp(p.z, -lim, lim);
 
-    if ((b & BTN.RELOAD) && p.reload === 0 && p.ammo < MAG_SIZE) { p.reload = RELOAD_TICKS; ev.reloadStart = true; }
-    if ((b & BTN.FIRE) && p.fireCd === 0 && p.reload === 0) {
-      if (p.ammo > 0) { p.ammo--; p.fireCd = FIRE_TICKS; ev.fire = true; }
-      else { p.reload = RELOAD_TICKS; p.fireCd = FIRE_TICKS; ev.dry = true; ev.reloadStart = true; }
+    if (weapon === WEAPON.RIFLE) {
+      if ((b & BTN.RELOAD) && p.reload === 0 && p.ammo < MAG_SIZE) { p.reload = RELOAD_TICKS; ev.reloadStart = true; }
+      if ((b & BTN.FIRE) && p.fireCd === 0 && p.reload === 0) {
+        if (p.ammo > 0) { p.ammo--; p.fireCd = FIRE_TICKS; ev.fire = true; }
+        else { p.reload = RELOAD_TICKS; p.fireCd = FIRE_TICKS; ev.dry = true; ev.reloadStart = true; }
+      }
+    } else if (weapon === WEAPON.SWORD) {
+      if ((b & BTN.FIRE) && p.fireCd === 0) {
+        p.fireCd = SWORD_TICKS; ev.swing = true;
+        if (p.og && p.dashT === 0) { p.vx -= sy * SWORD_LUNGE; p.vz -= cy * SWORD_LUNGE; }
+      }
+    } else { // shotgun: fire the shells, then it folds back into the sword
+      if ((b & BTN.FIRE) && p.fireCd === 0 && p.ammo > 0) { p.ammo--; p.fireCd = SHOTGUN_TICKS; ev.fire = true; ev.shotgun = true; }
+      else if (p.ammo === 0 && p.fireCd === 0) { p.wpn = 0; ev.sheathe = true; }
     }
     return ev;
   }
@@ -347,21 +401,71 @@
     if (lt !== null && lt < maxT && (!best || lt < best.t)) best = { t: lt, part: 'legs' };
     return best;
   }
-  /** Damage model: headshots x2, legs x0.75, falloff past 25 m (to 65% at 70 m). */
-  function damageFor(part, dist, shielded) {
-    let dmg = 34;
-    if (part === 'head') dmg = 68;
-    else if (part === 'legs') dmg = 26;
-    const fall = dist <= 25 ? 1 : Math.max(0.65, 1 - (dist - 25) / 45 * 0.35);
-    dmg *= fall;
+  /**
+   * Damage model.
+   * rifle: headshots x2, legs x0.75, falloff past 25 m (to 65% at 70 m).
+   * shotgun (per pellet): 13 body / 20 head / 10 legs, full up to 8 m, down to 25% at 25 m.
+   * sword: flat SWORD_DAMAGE.
+   * shielded = the SHIELD ability is active (hardened: 30% damage).
+   */
+  function damageFor(part, dist, shielded, weapon = WEAPON.RIFLE) {
+    let dmg;
+    if (weapon === WEAPON.SWORD) dmg = SWORD_DAMAGE;
+    else if (weapon === WEAPON.SHOTGUN) {
+      dmg = part === 'head' ? 20 : part === 'legs' ? 10 : 13;
+      dmg *= dist <= 8 ? 1 : Math.max(0.25, 1 - (dist - 8) / 17 * 0.75);
+    } else {
+      dmg = part === 'head' ? 68 : part === 'legs' ? 26 : 34;
+      dmg *= dist <= 25 ? 1 : Math.max(0.65, 1 - (dist - 25) / 45 * 0.35);
+    }
     if (shielded) dmg *= 0.3;
     return Math.max(1, Math.round(dmg));
+  }
+
+  /**
+   * Shotgun pellet directions. Seeded by the input sequence number so the server and the
+   * shooter's own client produce exactly the same spread pattern.
+   */
+  function pelletDirs(yaw, pitch, seed) {
+    const out = [], f = aimDirection(yaw, pitch);
+    // right/up basis around the aim direction
+    let rx = -f.z, rz = f.x; const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+    const ux = -rz * f.y, uy = rz * f.x - rx * f.z, uz = rx * f.y;
+    let s = ((seed | 0) * 2654435761 >>> 0) || 1;
+    const rnd = () => { s = (s * 1103515245 + 12345) >>> 0; return s / 4294967296; };
+    for (let i = 0; i < SHOTGUN_PELLETS; i++) {
+      // first pellet dead centre, the rest on a jittered ring
+      const r = i === 0 ? 0 : SHOTGUN_SPREAD * (0.45 + 0.55 * rnd()), a = i / (SHOTGUN_PELLETS - 1) * Math.PI * 2 + rnd() * 0.6;
+      const ox = Math.cos(a) * r, oy = Math.sin(a) * r;
+      const x = f.x + rx * ox + ux * oy, y = f.y + uy * oy, z = f.z + rz * ox + uz * oy, l = Math.hypot(x, y, z);
+      out.push({ x: x / l, y: y / l, z: z / l });
+    }
+    return out;
+  }
+
+  /**
+   * Sword hit test: is this target within reach and inside the swing's cone?
+   * Returns { t: distance, part } or null. Walls are checked by the caller.
+   */
+  function swordReach(eye, dir, pos) {
+    let best = null;
+    for (const [part, h] of [['head', 1.6], ['body', 1.15], ['legs', 0.6]]) {
+      const dx = pos.x - eye.x, dy = pos.y + h - eye.y, dz = pos.z - eye.z, d = Math.hypot(dx, dy, dz);
+      if (d > SWORD_RANGE + PLAYER_RADIUS) continue;
+      const cos = d < 0.3 ? 1 : (dx * dir.x + dy * dir.y + dz * dir.z) / d;
+      if (cos < SWORD_ARC_COS) continue;
+      if (!best || cos > best.cos) best = { t: d, part: part === 'head' ? 'head' : 'body', cos, point: { x: pos.x, y: pos.y + h, z: pos.z } };
+    }
+    return best;
   }
 
   return {
     TICK_RATE, DT, SNAPSHOT_EVERY, INTERP_DELAY_MS, MAX_REWIND_MS,
     PLAYER_RADIUS, PLAYER_HEIGHT, EYE_HEIGHT, STEP_HEIGHT, MOVE_SPEED, JUMP_VELOCITY,
     DASH_TICKS, DASH_COOLDOWN_TICKS, MAG_SIZE, FIRE_TICKS, RELOAD_TICKS, MAX_RANGE, BTN,
+    CLASSES, WEAPON, classOf, weaponOf, grantShotgun, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_PER_S,
+    SWORD_TICKS, SWORD_RANGE, SWORD_DAMAGE, SHOTGUN_SHELLS, SHOTGUN_TICKS, SHOTGUN_PELLETS, SHOTGUN_RANGE, TRANSFORM_TICKS,
+    pelletDirs, swordReach,
     ARENA_HALF, WALL_HEIGHT, CATWALK_TOP, boxes, spawns,
     newPlayerState, copyState, stepPlayer, isFree, aimDirection, eyeOf,
     rayBox, raycastWorld, rayPlayer, damageFor, clamp

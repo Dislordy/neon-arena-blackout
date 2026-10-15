@@ -1,5 +1,19 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.5 — Classes & shields
+- Pick a class in the lobby (or from the ☰ menu; it switches on your next respawn):
+  - **Soldier** — the original runner: VX-9 rifle, 100 HP, one dash.
+  - **Assassin** — VX-9 rifle, 85 HP, fastest runner, **three dash charges** that refill one at a time.
+    A small badge on the top-right of the dash button shows how many are left.
+  - **Knight** — 130 HP, the *Cinder Oath* greatsword (hold fire to swing; small lunge; alternating slashes).
+    Every kill reforges the blade into the *Pyre* shotgun (6 shells, 8 pellets); it folds back into the sword when empty.
+- Everyone has a 50-point **energy shield** that takes damage first and recharges after 3.5 s out of fire.
+  The SHIELD ability (Q) now also refills it instantly. New HUD shield bar, hit/break/recharge sounds.
+- New third-person looks: tactical Soldier (visored helmet, chest rig), hooded Assassin (mask, glowing eyes,
+  long cloak), horned Knight (twin spiked pauldrons, tabard, sword or shotgun in hand).
+- New sounds: sword swing / hit, shotgun blast + pump, transformation, shield hit / break / recharge.
+- All damage stays server-authoritative and lag-compensated (sword reach, pellets, shield). 31 automated tests.
+
 ## V4.4 — In-game menu
 - ☰ menu button next to the timer (phones and desktop; Esc also opens it on desktop): Resume, Sound on/off
   with a volume slider (remembered between visits, M toggles sound), Scoreboard, and Exit match

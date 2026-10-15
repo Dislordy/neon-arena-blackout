@@ -79,10 +79,11 @@ async function test(name, fn) {
   });
 
   // Place players deterministically for combat tests.
-  function place(p, x, z, yaw) {
+  function place(p, x, z, yaw, cls = 0) {
     p.queue.length = 0;
-    Object.assign(p.sim, { x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw, og: true, alive: true, ammo: Sim.MAG_SIZE, reload: 0, fireCd: 0 });
-    p.hp = 100; p.protectUntil = 0; p.history = []; p.shieldUntil = 0;
+    p.sim = Object.assign(Sim.newPlayerState(x, z, cls), { yaw });
+    const C = Sim.CLASSES[cls];
+    p.hp = C.hp; p.shield = C.shield; p.hurtAt = 0; p.protectUntil = 0; p.history = []; p.shieldUntil = 0;
   }
 
   await test('walls block shots', async () => {
@@ -96,17 +97,20 @@ async function test(name, fn) {
     assert.strictEqual(pb.hp, 100);
   });
 
-  await test('clear line of fire hits; three body shots eliminate', async () => {
+  await test('clear line of fire hits; shield soaks first; five body shots eliminate a soldier', async () => {
     place(pa, -18, -10, 0); place(pb, -18, -20, Math.PI);
     await wait(80);
     a.hits.length = 0; b.hurts.length = 0;
     const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 10); // aim at the chest
-    // hold fire for ~0.6 s; fire rate is server-limited
-    await a.stream(36, { yaw: 0, pitch, b: Sim.BTN.FIRE });
+    // hold fire for ~1.1 s; fire rate is server-limited
+    await a.stream(66, { yaw: 0, pitch, b: Sim.BTN.FIRE });
     await wait(150);
-    assert.ok(a.hits.length >= 3, 'hits=' + a.hits.length);
+    assert.ok(a.hits.length >= 5, 'hits=' + a.hits.length);
     assert.strictEqual(a.hits[0].part, 'body');
-    assert.ok(b.hurts.length >= 3);
+    assert.ok(a.hits[0].sh, 'first hit lands on the shield');
+    assert.strictEqual(b.hurts[0].hp, 100, 'shield absorbed the first shot');
+    assert.ok(a.hits.some(h => h.brk), 'shield break is reported');
+    assert.ok(b.hurts.length >= 5);
     assert.ok(!pb.sim.alive, 'target should be eliminated');
     assert.strictEqual(pa.kills, 1);
     assert.ok(a.hits.some(h => h.k));
@@ -147,6 +151,57 @@ async function test(name, fn) {
     a.send(1, { yaw: 0, pitch, b: Sim.BTN.FIRE, vt: 0 });
     await wait(150);
     assert.strictEqual(a.hits.length, 0, 'over-long rewinds must be clamped');
+  });
+
+  await test('energy shield regenerates after a few seconds without damage', async () => {
+    place(pb, -18, -20, 0);
+    pb.shield = 10; pb.hurtAt = require('perf_hooks').performance.now() - Sim.SHIELD_REGEN_DELAY_MS - 10;
+    await wait(500);
+    assert.ok(pb.shield > 18 && pb.shield <= 50, 'shield=' + pb.shield);
+    pb.shield = 10; pb.hurtAt = require('perf_hooks').performance.now();
+    await wait(300);
+    assert.strictEqual(pb.shield, 10, 'no regen right after damage');
+  });
+
+  await test('knight: more health, sword kills, then the sword becomes a shotgun', async () => {
+    place(pa, -18, -18, 0, 2); place(pb, -18, -20, Math.PI);
+    assert.strictEqual(pa.hp, 130);
+    await wait(80);
+    a.hits.length = 0;
+    const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 2);
+    // 0.55 s per swing; soldier has 150 effective HP -> 3 swings. Stream ~2 s of held attack.
+    await a.stream(120, { yaw: 0, pitch, b: Sim.BTN.FIRE });
+    await wait(150);
+    assert.ok(a.hits.filter(h => h.w === 'sword').length >= 3, 'sword hits=' + a.hits.length);
+    assert.ok(!pb.sim.alive, 'target should be eliminated by the sword');
+    assert.strictEqual(pa.sim.wpn, 1, 'sword transformed into the shotgun');
+    assert.ok(pa.sim.ammo > 0 && pa.sim.ammo <= Sim.SHOTGUN_SHELLS);
+  });
+
+  await test('knight shotgun: pellets hit hard up close and shells run out', async () => {
+    place(pa, -18, -16, 0, 2); place(pb, -18, -20, Math.PI);
+    Sim.grantShotgun(pa.sim); pa.sim.fireCd = 0;
+    await wait(80);
+    a.hits.length = 0; b.shots.length = 0;
+    const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 4);
+    a.send(1, { yaw: 0, pitch, b: Sim.BTN.FIRE });
+    await wait(150);
+    const h = a.hits.find(x => x.w === 'shotgun');
+    assert.ok(h && h.d >= 60, 'pellets at 4 m should total 60+ damage, got ' + (h && h.d));
+    assert.ok(b.shots.some(s => s.w === 'sg' && s.pe.length === Sim.SHOTGUN_PELLETS), 'others receive all pellets');
+    assert.strictEqual(pa.sim.ammo, Sim.SHOTGUN_SHELLS - 1);
+  });
+
+  await test('class choice applies on respawn', async () => {
+    b.sock.emit('setClass', { cls: 1 });
+    await wait(80);
+    assert.strictEqual(pb.nextCls, 1);
+    pb.sim.alive = false; pb.respawnAt = 1;
+    await wait(120);
+    assert.ok(pb.sim.alive);
+    assert.strictEqual(pb.sim.cls, 1);
+    assert.strictEqual(pb.hp, 85);
+    assert.strictEqual(pb.sim.dashN, 3);
   });
 
   a.sock.close(); b.sock.close();

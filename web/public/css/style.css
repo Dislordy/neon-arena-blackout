@@ -250,6 +250,37 @@ button:hover{background:var(--yellow);color:#111;box-shadow:0 0 22px rgba(252,23
   .gameMenu button{padding:12px 14px}
 }
 
+/* classes: picker cards, shield bar, dash-charge badge */
+.pickTitle{margin-top:14px}
+.classPick{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:8px 0 4px}
+.classCard{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:9px 9px 8px;text-align:left;text-transform:none;letter-spacing:0;
+  border:1px solid rgba(255,255,255,.18);background:rgba(8,6,14,.7);font:500 12px Rajdhani,sans-serif;color:#b9c6d6;min-width:0}
+.classCard b{font:700 11px Orbitron,sans-serif;letter-spacing:1.5px;color:#fff}
+.classCard .ic{width:26px;height:26px;color:var(--yellow)}
+.classCard small{color:#7f92a8;font-size:11px}
+.classCard:hover{background:rgba(252,238,10,.06);color:#d6dee8;border-color:rgba(252,238,10,.45);box-shadow:none}
+.classCard.selected{border-color:var(--yellow);background:rgba(252,238,10,.1);box-shadow:0 0 16px rgba(252,238,10,.18)}
+.classCard.selected b{color:var(--yellow)}
+.classPick.mini .classCard{padding:6px 7px;flex-direction:row;align-items:center;gap:6px}
+.classPick.mini .classCard span,.classPick.mini .classCard small{display:none}
+.classPick.mini .classCard .ic{width:18px;height:18px}
+.menuClass{margin-top:10px}
+.shval{color:#7fd9ff}
+.shieldbar{position:relative;width:170px;height:4px;margin-top:5px;background:rgba(94,200,255,.12);overflow:hidden}
+.shieldfill{position:absolute;inset:0;width:100%;background:linear-gradient(90deg,#4fc3ff,#b8f3ff);box-shadow:0 0 8px rgba(94,200,255,.8);transition:width .15s}
+.shieldfill.regen{animation:shregen .5s infinite alternate}
+@keyframes shregen{from{opacity:.55}to{opacity:1}}
+.charges{display:none;position:absolute;top:-1px;right:-1px;min-width:17px;height:17px;padding:0 3px;border-radius:9px;
+  font:700 10px/17px Orbitron,sans-serif;font-style:normal;color:#111;background:var(--yellow);box-shadow:0 0 8px rgba(252,238,10,.6);
+  --rc:0;background-image:conic-gradient(rgba(0,0,0,.45) calc(var(--rc) * 360deg),transparent 0)}
+.charges.on{display:block}
+.charges.empty{background-color:#5a5a40;color:#ddd;box-shadow:none}
+.mcharges{position:absolute;pointer-events:none;top:auto;right:calc(194px + env(safe-area-inset-right));bottom:64px;z-index:1}
+.crosshair[data-mode=sword] i{opacity:0}
+.crosshair[data-mode=sword] b{width:14px;height:14px;left:-7px;top:-7px;background:none;border:2px solid #ffb27a;border-radius:50%}
+.crosshair[data-mode=shotgun] b{width:4px;height:4px;left:-2px;top:-2px;background:#ffb27a;border-radius:50%}
+@media (pointer:coarse){ .shieldbar{width:110px;height:3px} .classCard{padding:7px} .classCard span{display:none} }
+
 /* short landscape screens: let menus fit */
 @media (max-height:500px){
   .panel{padding:14px 18px;max-height:96vh}

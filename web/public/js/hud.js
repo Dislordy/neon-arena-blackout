@@ -15,22 +15,51 @@ export class Hud {
   }
   set(key, val, fn) { if (this.last[key] !== val) { this.last[key] = val; fn(val); } }
 
-  vitals(hp) {
-    this.set('hp', hp, v => {
-      $('hp').textContent = v;
-      $('healthFill').style.width = v + '%';
-      $('healthGhost').style.width = v + '%';
-      $('healthFill').classList.toggle('low', v <= 35);
+  /** hp / max health, sh / max shield (the shield soaks damage first and recharges). */
+  vitals(hp, maxHp = 100, sh = 0, maxSh = 50, regen = false) {
+    this.set('hp', hp + '/' + maxHp, () => {
+      const f = Math.max(0, Math.min(100, hp / maxHp * 100));
+      $('hp').textContent = Math.max(0, Math.round(hp));
+      $('healthFill').style.width = f + '%';
+      $('healthGhost').style.width = f + '%';
+      $('healthFill').classList.toggle('low', hp / maxHp <= 0.35);
     });
+    this.set('sh', Math.round(sh) + '/' + maxSh, () => {
+      $('sh').textContent = Math.round(sh);
+      $('shieldFill').style.width = (maxSh ? Math.max(0, sh / maxSh * 100) : 0) + '%';
+    });
+    this.set('shregen', regen, v => $('shieldFill').classList.toggle('regen', v));
   }
-  ammo(ammo, reloadTicks) {
-    this.set('ammo', ammo, v => {
-      $('ammo').textContent = v;
-      this.pips.forEach((p, i) => p.classList.toggle('spent', i >= v));
-      $('ammo').parentElement.classList.toggle('low', v <= 6);
+  className(name) { this.set('cls', name, v => { $('className').textContent = v; }); }
+  /** weapon: 'rifle' | 'sword' | 'shotgun' */
+  ammo(ammo, reloadTicks, weapon = 'rifle') {
+    this.set('weapon', weapon, w => {
+      const mag = w === 'shotgun' ? Sim.SHOTGUN_SHELLS : w === 'rifle' ? Sim.MAG_SIZE : 0;
+      this.pips.forEach((p, i) => { p.style.display = i < mag ? '' : 'none'; });
+      $('ammo').nextElementSibling.textContent = mag ? ` / ${mag}` : '';
+      $('weaponName').textContent = w === 'sword' ? 'CINDER OATH GREATSWORD' : w === 'shotgun' ? 'PYRE SHOTGUN · ' + Sim.SHOTGUN_SHELLS + ' SHELLS' : 'VX-9 ENERGY RIFLE';
+      $('ammo').parentElement.classList.toggle('melee', w === 'sword');
+      $('crosshair').dataset.mode = w;
+      this.last.ammo = undefined;
     });
-    const r = reloadTicks > 0 ? 1 - reloadTicks / Sim.RELOAD_TICKS : 0;
+    this.set('ammo', weapon === 'sword' ? '⚔' : ammo, v => {
+      $('ammo').textContent = v;
+      if (weapon !== 'sword') this.pips.forEach((p, i) => p.classList.toggle('spent', i >= v));
+      $('ammo').parentElement.classList.toggle('low', weapon === 'rifle' ? v <= 6 : weapon === 'shotgun' && v <= 1);
+    });
+    const r = reloadTicks > 0 && weapon === 'rifle' ? 1 - reloadTicks / Sim.RELOAD_TICKS : 0;
     this.set('reload', Math.round(r * 100), v => { $('reloadFill').style.width = v + '%'; });
+  }
+  /** Dash-charge badge (top-right of the dash buttons): charges left and the next charge's refill progress. */
+  dashCharges(n, max, refillFrac) {
+    this.set('dashc', n + '/' + max + '/' + Math.round(refillFrac * 20), () => {
+      for (const el of document.querySelectorAll('[data-charges]')) {
+        el.classList.toggle('on', max > 1);
+        el.classList.toggle('empty', n === 0);
+        el.textContent = n;
+        el.style.setProperty('--rc', n < max ? (1 - refillFrac).toFixed(2) : 0);
+      }
+    });
   }
   status(text) { this.set('status', text, v => { $('weaponStatus').textContent = v; }); }
   score(score) { this.set('score', score, v => { $('score').textContent = String(v).padStart(3, '0'); }); }

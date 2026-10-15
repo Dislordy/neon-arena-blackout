@@ -117,4 +117,62 @@ test('damage model', () => {
   assert.ok(Sim.damageFor('body', 10, true) < 12);
 });
 
+test('assassin has three dash charges that refill one at a time', () => {
+  const p = Sim.newPlayerState(-18, -20, 1);
+  let dashes = 0;
+  for (let i = 0; i < 70; i++) if (Sim.stepPlayer(p, input({ mz: i % 2 ? 0 : 1, b: Sim.BTN.DASH })).dash) dashes++;
+  assert.strictEqual(dashes, 3);
+  assert.strictEqual(p.dashN, 0);
+  run(p, input(), Sim.CLASSES[1].dashRecharge);
+  assert.strictEqual(p.dashN, 1, 'one charge back after one recharge period');
+  run(p, input(), Sim.CLASSES[1].dashRecharge * 2);
+  assert.strictEqual(p.dashN, 3);
+});
+
+test('class speeds differ', () => {
+  const dist = cls => { const p = Sim.newPlayerState(-18, -20, cls); run(p, input({ mz: 1 }), 60); return -20 - p.z; };
+  assert.ok(dist(1) > dist(0) && dist(0) > dist(2));
+});
+
+test('knight swings the sword (no ammo, no reload) and the shotgun folds back when empty', () => {
+  const p = Sim.newPlayerState(-18, -20, 2);
+  assert.strictEqual(Sim.weaponOf(p), 'sword');
+  let swings = 0;
+  for (let i = 0; i < 120; i++) { const ev = Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE | Sim.BTN.RELOAD })); if (ev.swing) swings++; assert.ok(!ev.fire); }
+  assert.ok(swings >= 3 && swings <= 4, 'swings in 2s=' + swings);
+  assert.strictEqual(p.reload, 0);
+  assert.ok(Sim.grantShotgun(p));
+  assert.strictEqual(Sim.weaponOf(p), 'shotgun');
+  let shots = 0, sheathed = false;
+  for (let i = 0; i < 600 && !sheathed; i++) { const ev = Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })); if (ev.fire) shots++; if (ev.sheathe) sheathed = true; }
+  assert.strictEqual(shots, Sim.SHOTGUN_SHELLS);
+  assert.ok(sheathed); assert.strictEqual(Sim.weaponOf(p), 'sword');
+  assert.ok(!Sim.grantShotgun(Sim.newPlayerState(0, 0, 0)), 'only knights get the shotgun');
+});
+
+test('shotgun pellets are deterministic per input and stay inside the spread', () => {
+  const a = Sim.pelletDirs(0.3, 0.1, 42), b = Sim.pelletDirs(0.3, 0.1, 42), c = Sim.pelletDirs(0.3, 0.1, 43);
+  assert.deepStrictEqual(a, b);
+  assert.notDeepStrictEqual(a, c);
+  const f = Sim.aimDirection(0.3, 0.1);
+  for (const d of a) {
+    assert.ok(Math.abs(Math.hypot(d.x, d.y, d.z) - 1) < 1e-9);
+    assert.ok(Math.acos(Math.min(1, d.x * f.x + d.y * f.y + d.z * f.z)) <= 0.066);
+  }
+});
+
+test('sword reach: close and in front hits, behind or far misses', () => {
+  const eye = { x: 0, y: 1.62, z: 0 }, fwd = Sim.aimDirection(0, 0);
+  assert.ok(Sim.swordReach(eye, fwd, { x: 0, y: 0, z: -2 }));
+  assert.ok(!Sim.swordReach(eye, fwd, { x: 0, y: 0, z: 2 }), 'behind');
+  assert.ok(!Sim.swordReach(eye, fwd, { x: 0, y: 0, z: -4 }), 'too far');
+  assert.ok(!Sim.swordReach(eye, fwd, { x: 2, y: 0, z: -0.5 }), 'outside the arc');
+});
+
+test('weapon damage: shotgun falls off hard, sword is flat', () => {
+  assert.strictEqual(Sim.damageFor('body', 5, false, 'shotgun'), 13);
+  assert.ok(Sim.damageFor('body', 25, false, 'shotgun') <= 4);
+  assert.strictEqual(Sim.damageFor('body', 2, false, 'sword'), Sim.SWORD_DAMAGE);
+});
+
 console.log(`sim: ${passed} passed`);

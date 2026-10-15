@@ -63,8 +63,11 @@ function addFeed(room, message, kind = 'info') {
   room.feed = room.feed.slice(-8);
 }
 function publicMeta(p) {
-  return { id: p.id, name: p.name, color: p.color, score: p.score, kills: p.kills, deaths: p.deaths, alive: p.sim.alive, hp: p.hp };
+  return { id: p.id, name: p.name, color: p.color, score: p.score, kills: p.kills, deaths: p.deaths, alive: p.sim.alive, hp: p.hp, cls: p.sim.cls, next: p.nextCls };
 }
+const validClass = c => (Number.isInteger(c) && Sim.CLASSES[c] ? c : 0);
+/** Full health + shield for the player's class. */
+function refill(p) { const C = Sim.classOf(p.sim); p.hp = C.hp; p.shield = C.shield; p.hurtAt = 0; }
 function metaState(room) {
   return {
     code: room.code, phase: room.phase, host: room.hostId,
@@ -92,9 +95,9 @@ function chooseSpawn(room, self) {
 function placeAtSpawn(room, p) {
   const s = chooseSpawn(room, p);
   const keep = { yaw: Math.atan2(s.x, s.z), pitch: 0 }; // face the arena centre
-  p.sim = Sim.newPlayerState(s.x, s.z);
+  p.sim = Sim.newPlayerState(s.x, s.z, p.nextCls);
   p.sim.yaw = keep.yaw;
-  p.hp = 100;
+  refill(p);
   p.protectUntil = now() + SPAWN_PROTECT_MS;
   p.history = [];
   p.teleported = true; // tells the client to snap instead of smoothing
@@ -156,15 +159,12 @@ function positionAt(p, t) {
 }
 
 // ------------------------------------------------------------ combat
-function handleShot(room, shooter, viewTime) {
-  const t = now();
-  const s = shooter.sim;
-  const origin = Sim.eyeOf(s);
-  const dir = Sim.aimDirection(s.yaw, s.pitch);
-  const world = Sim.raycastWorld(origin, dir, Sim.MAX_RANGE);
-  let maxT = world ? world.t : Sim.MAX_RANGE;
-  // Rewind other players to what the shooter was looking at, within limits.
-  const rewindT = Number.isFinite(viewTime) ? Math.min(t, Math.max(t - Sim.MAX_REWIND_MS, viewTime)) : t - Sim.INTERP_DELAY_MS;
+/** Rewind time for lag compensation: what the shooter was looking at, within limits. */
+function rewindTime(t, viewTime) {
+  return Number.isFinite(viewTime) ? Math.min(t, Math.max(t - Sim.MAX_REWIND_MS, viewTime)) : t - Sim.INTERP_DELAY_MS;
+}
+/** Closest player hit by a ray (against rewound positions), or null. */
+function rayTargets(room, shooter, origin, dir, maxT, rewindT) {
   let best = null;
   for (const target of room.players.values()) {
     if (target === shooter || !target.sim.alive) continue;
@@ -173,38 +173,112 @@ function handleShot(room, shooter, viewTime) {
     const hit = Sim.rayPlayer(origin, dir, pos, maxT);
     if (hit && (!best || hit.t < best.t)) best = { target, t: hit.t, part: hit.part };
   }
-  const endT = best ? best.t : maxT;
-  const end = { x: origin.x + dir.x * endT, y: origin.y + dir.y * endT, z: origin.z + dir.z * endT };
+  return best;
+}
+const endPoint = (o, d, t) => ({ x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t });
+const v3 = p => [r3(p.x), r3(p.y), r3(p.z)];
+
+/**
+ * Apply damage: the energy shield soaks it first, then health.
+ * Returns true if the target was eliminated.
+ */
+function applyDamage(room, shooter, target, raw, part, point, weapon) {
+  const t = now();
+  if (t < target.protectUntil) {
+    io.to(shooter.id).emit('hit', { id: target.id, d: 0, part, k: false, p: v3(point), blocked: true, w: weapon });
+    return false;
+  }
+  const hardened = target.shieldUntil > t;
+  const dmg = raw;
+  const absorbed = Math.min(target.shield, dmg);
+  const hadShield = target.shield > 0;
+  target.shield -= absorbed;
+  target.hp = Math.max(0, target.hp - (dmg - absorbed));
+  target.hurtAt = t;
+  const killed = target.hp <= 0;
+  const broke = hadShield && target.shield <= 0;
+  io.to(shooter.id).emit('hit', { id: target.id, d: dmg, part, k: killed, p: v3(point), shielded: hardened, sh: absorbed > 0, brk: broke, w: weapon });
+  io.to(target.id).emit('hurt', { d: dmg, part, hp: target.hp, sh: Math.round(target.shield), brk: broke, from: [r3(shooter.sim.x), r3(shooter.sim.z)], by: shooter.id, w: weapon });
+  if (killed) {
+    target.sim.alive = false; target.deaths++;
+    target.respawnAt = t + RESPAWN_MS;
+    shooter.kills++; shooter.score += part === 'head' ? 125 : 100;
+    const how = weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
+    addFeed(room, `${shooter.name} ${how} ${target.name}`, 'kill');
+    io.to(room.code).emit('killed', { killer: shooter.id, victim: target.id, head: part === 'head', w: weapon, pos: [r3(target.sim.x), r3(target.sim.y), r3(target.sim.z)] });
+    // knight reward: the greatsword transforms into a shotgun
+    if (shooter.sim.alive && Sim.grantShotgun(shooter.sim)) io.to(room.code).emit('transform', { id: shooter.id });
+    emitMeta(room);
+  }
+  return killed;
+}
+
+function handleShot(room, shooter, viewTime) {
+  const t = now();
+  const s = shooter.sim;
+  const origin = Sim.eyeOf(s);
+  const dir = Sim.aimDirection(s.yaw, s.pitch);
+  const world = Sim.raycastWorld(origin, dir, Sim.MAX_RANGE);
+  const maxT = world ? world.t : Sim.MAX_RANGE;
+  const best = rayTargets(room, shooter, origin, dir, maxT, rewindTime(t, viewTime));
+  const end = endPoint(origin, dir, best ? best.t : maxT);
   const shot = {
-    id: shooter.id,
-    o: [r3(origin.x), r3(origin.y), r3(origin.z)],
-    e: [r3(end.x), r3(end.y), r3(end.z)],
+    id: shooter.id, o: v3(origin), e: v3(end),
     n: !best && world ? world.n : null,
     k: !best && world ? world.kind : null,
     h: best ? best.target.id : null
   };
   io.to(room.code).except(shooter.id).emit('shot', shot);
   if (!best) return;
+  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t), best.part, end, Sim.WEAPON.RIFLE);
+}
 
-  const target = best.target;
-  if (t < target.protectUntil) {
-    io.to(shooter.id).emit('hit', { id: target.id, d: 0, part: best.part, k: false, p: shot.e, blocked: true });
-    return;
+/** Shotgun: 8 pellets (same seeded spread as the shooter's client); damage is summed per target. */
+function handleShotgun(room, shooter, input) {
+  const t = now();
+  const s = shooter.sim;
+  const origin = Sim.eyeOf(s);
+  const rewindT = rewindTime(t, input.vt);
+  const pellets = [], perTarget = new Map();
+  for (const dir of Sim.pelletDirs(s.yaw, s.pitch, input.s)) {
+    const world = Sim.raycastWorld(origin, dir, Sim.SHOTGUN_RANGE);
+    const maxT = world ? world.t : Sim.SHOTGUN_RANGE;
+    const best = rayTargets(room, shooter, origin, dir, maxT, rewindT);
+    const end = endPoint(origin, dir, best ? best.t : maxT);
+    pellets.push({ e: v3(end), n: !best && world ? world.n : null, k: !best && world ? world.kind : null, h: best ? best.target.id : null });
+    if (best) {
+      const agg = perTarget.get(best.target) || { dmg: 0, head: false, point: end };
+      agg.dmg += Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, Sim.WEAPON.SHOTGUN);
+      agg.head = agg.head || best.part === 'head';
+      perTarget.set(best.target, agg);
+    }
   }
-  const shielded = target.shieldUntil > t;
-  const dmg = Sim.damageFor(best.part, best.t, shielded);
-  target.hp = Math.max(0, target.hp - dmg);
-  const killed = target.hp <= 0;
-  io.to(shooter.id).emit('hit', { id: target.id, d: dmg, part: best.part, k: killed, p: shot.e, shielded });
-  io.to(target.id).emit('hurt', { d: dmg, part: best.part, hp: target.hp, from: [r3(s.x), r3(s.z)], by: shooter.id });
-  if (killed) {
-    target.sim.alive = false; target.deaths++;
-    target.respawnAt = t + RESPAWN_MS;
-    shooter.kills++; shooter.score += best.part === 'head' ? 125 : 100;
-    addFeed(room, `${shooter.name} ${best.part === 'head' ? '⊕ headshot' : '▸'} ${target.name}`, 'kill');
-    io.to(room.code).emit('killed', { killer: shooter.id, victim: target.id, head: best.part === 'head', pos: [r3(target.sim.x), r3(target.sim.y), r3(target.sim.z)] });
-    emitMeta(room);
+  io.to(room.code).except(shooter.id).emit('shot', { id: shooter.id, o: v3(origin), w: 'sg', pe: pellets });
+  for (const [target, agg] of perTarget) if (target.sim.alive) applyDamage(room, shooter, target, agg.dmg, agg.head ? 'head' : 'body', agg.point, Sim.WEAPON.SHOTGUN);
+}
+
+/** Greatsword swing: hits the closest enemy inside the swing cone (lag compensated, blocked by walls). */
+function handleSwing(room, shooter, viewTime) {
+  const t = now();
+  const s = shooter.sim;
+  const eye = Sim.eyeOf(s);
+  const dir = Sim.aimDirection(s.yaw, s.pitch);
+  const rewindT = rewindTime(t, viewTime);
+  let best = null;
+  for (const target of room.players.values()) {
+    if (target === shooter || !target.sim.alive) continue;
+    const pos = positionAt(target, rewindT);
+    if (!pos.alive) continue;
+    const hit = Sim.swordReach(eye, dir, pos);
+    if (!hit) continue;
+    const d = { x: (hit.point.x - eye.x) / hit.t, y: (hit.point.y - eye.y) / hit.t, z: (hit.point.z - eye.z) / hit.t };
+    const wall = Sim.raycastWorld(eye, d, hit.t);
+    if (wall && wall.t < hit.t - 0.3) continue;
+    if (!best || hit.t < best.t) best = { target, ...hit };
   }
+  io.to(room.code).except(shooter.id).emit('swing', { id: shooter.id, h: best ? best.target.id : null, p: best ? v3(best.point) : null });
+  if (!best) return;
+  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, Sim.WEAPON.SWORD), best.part, best.point, Sim.WEAPON.SWORD);
 }
 const r3 = v => Math.round(v * 1000) / 1000;
 
@@ -230,8 +304,14 @@ function tickRoom(room) {
       p.budget -= Sim.DT; processed++;
       p.lastSeq = input.s;
       const ev = Sim.stepPlayer(p.sim, input);
-      if (ev.fire) handleShot(room, p, input.vt);
+      if (ev.fire && ev.shotgun) handleShotgun(room, p, input);
+      else if (ev.fire) handleShot(room, p, input.vt);
+      if (ev.swing) handleSwing(room, p, input.vt);
+      if (ev.sheathe) io.to(room.code).emit('sheathe', { id: p.id });
     }
+    // energy shield refills after a few seconds without taking damage
+    const C = Sim.classOf(p.sim);
+    if (p.sim.alive && p.shield < C.shield && t - p.hurtAt > Sim.SHIELD_REGEN_DELAY_MS) p.shield = Math.min(C.shield, p.shield + Sim.SHIELD_REGEN_PER_S * Sim.DT);
     if (!p.sim.alive && p.respawnAt && t >= p.respawnAt) {
       p.respawnAt = 0;
       placeAtSpawn(room, p);
@@ -246,7 +326,7 @@ function sendSnapshots(room, t) {
   const others = [];
   for (const p of room.players.values()) {
     const s = p.sim;
-    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0);
+    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0);
     others.push([p.id, r3(s.x), r3(s.y), r3(s.z), r3(s.yaw), r3(s.pitch), flags, r3(s.vx), r3(s.vz)]);
   }
   for (const p of room.players.values()) {
@@ -254,7 +334,7 @@ function sendSnapshots(room, t) {
     io.to(p.id).emit('snap', {
       t: Math.round(t * 10) / 10,
       ack: p.lastSeq,
-      me, hp: p.hp, tp: p.teleported || false,
+      me, hp: p.hp, sh: Math.round(p.shield), tp: p.teleported || false,
       cd: { shield: Math.max(0, p.shieldCdUntil - t), scan: Math.max(0, p.scanCdUntil - t), shieldOn: Math.max(0, p.shieldUntil - t) },
       ps: others
     });
@@ -285,15 +365,15 @@ io.on('connection', socket => {
 
   socket.on('ping2', (_, cb) => { if (typeof cb === 'function') cb(now()); });
 
-  socket.on('createRoom', ({ name } = {}, cb = () => {}) => {
+  socket.on('createRoom', ({ name, cls } = {}, cb = () => {}) => {
     if (typeof cb !== 'function') return;
     if (roomCode) return cb({ ok: false, error: 'Leave your current room first.' });
     const code = makeCode();
     const room = { code, hostId: socket.id, phase: 'lobby', players: new Map(), feed: [], endsAt: 0, timer: null, tick: 0 };
     rooms.set(code, room);
-    joinRoom(room, name, cb);
+    joinRoom(room, name, cls, cb);
   });
-  socket.on('joinRoom', ({ code, name } = {}, cb = () => {}) => {
+  socket.on('joinRoom', ({ code, name, cls } = {}, cb = () => {}) => {
     if (typeof cb !== 'function') return;
     code = String(code || '').toUpperCase().trim();
     const room = rooms.get(code);
@@ -301,17 +381,19 @@ io.on('connection', socket => {
     if (room.players.size >= MAX_PLAYERS) return cb({ ok: false, error: 'This room is full (8 players maximum).' });
     if (room.phase === 'playing') return cb({ ok: false, error: 'That match is already in progress.' });
     if (roomCode) return cb({ ok: false, error: 'Leave your current room first.' });
-    joinRoom(room, name, cb);
+    joinRoom(room, name, cls, cb);
   });
-  function joinRoom(room, rawName, cb) {
+  function joinRoom(room, rawName, rawCls, cb) {
     const name = String(rawName || 'Runner').replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 16) || 'Runner';
     const used = new Set([...room.players.values()].map(p => p.color));
     const color = COLORS.find(c => !used.has(c)) || COLORS[room.players.size % COLORS.length];
+    const cls = validClass(rawCls);
     const p = {
-      id: socket.id, name, color, score: 0, kills: 0, deaths: 0, hp: 100,
-      sim: Sim.newPlayerState(0, 0), queue: [], budget: 0, lastSeq: -1, history: [],
+      id: socket.id, name, color, score: 0, kills: 0, deaths: 0, hp: 100, shield: 0, hurtAt: 0, nextCls: cls,
+      sim: Sim.newPlayerState(0, 0, cls), queue: [], budget: 0, lastSeq: -1, history: [],
       protectUntil: 0, shieldUntil: 0, shieldCdUntil: 0, scanCdUntil: 0, respawnAt: 0, teleported: true
     };
+    refill(p);
     room.players.set(socket.id, p);
     roomCode = room.code;
     socket.join(room.code);
@@ -319,6 +401,15 @@ io.on('connection', socket => {
     cb({ ok: true, code: room.code, host: room.hostId === socket.id, playerId: socket.id });
     emitMeta(room);
   }
+
+  // Class choice: applies at once in the lobby, otherwise on the next respawn.
+  socket.on('setClass', ({ cls } = {}) => {
+    const room = getRoom(), p = getMe();
+    if (!room || !p) return;
+    p.nextCls = validClass(cls);
+    if (room.phase !== 'playing') { p.sim = Sim.newPlayerState(0, 0, p.nextCls); refill(p); }
+    emitMeta(room);
+  });
 
   socket.on('startMatch', () => {
     const room = getRoom();
@@ -346,6 +437,7 @@ io.on('connection', socket => {
     const t = now();
     if (type === 'shield' && t >= p.shieldCdUntil) {
       p.shieldUntil = t + ABILITIES.shield.duration; p.shieldCdUntil = t + ABILITIES.shield.cooldown;
+      p.shield = Sim.classOf(p.sim).shield; // and instantly recharges the energy shield
       io.to(room.code).emit('abilityFx', { id: p.id, type: 'shield' });
     } else if (type === 'scan' && t >= p.scanCdUntil) {
       p.scanCdUntil = t + ABILITIES.scan.cooldown;
@@ -353,6 +445,15 @@ io.on('connection', socket => {
       socket.emit('scanPulse', { players: found, duration: ABILITIES.scan.duration });
       io.to(room.code).emit('abilityFx', { id: p.id, type: 'scan' });
     }
+  });
+
+  // Test-only hooks (screenshots / automated tests). Never enabled on the public server.
+  if (process.env.NAB_DEBUG === '1') socket.on('debug', (d = {}) => {
+    const room = getRoom(), p = getMe();
+    if (!room || !p) return;
+    if (d.place) { Object.assign(p.sim, { x: +d.place.x || 0, y: 0, z: +d.place.z || 0, vx: 0, vz: 0, yaw: +d.place.yaw || 0 }); p.teleported = true; p.history = []; }
+    if (d.grant) Sim.grantShotgun(p.sim);
+    if (d.protect === false) p.protectUntil = 0;
   });
 
   socket.on('rematch', () => {

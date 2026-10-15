@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import * as TX from './textures.js';
 
 let shared = null;
-function materials() {
+export function materials() {
   if (shared) return shared;
   const gm = TX.gunMetalMaps(256);
   shared = {
@@ -28,7 +28,7 @@ function materials() {
 }
 
 /** Extrude a side profile given as [z, y] points into a bevelled solid, centred on x. */
-function sideProfile(points, depth, { holes = [], bevel = 0.004 } = {}) {
+export function sideProfile(points, depth, { holes = [], bevel = 0.004 } = {}) {
   const shape = new THREE.Shape(points.map(([z, y]) => new THREE.Vector2(z, y)));
   for (const h of holes) shape.holes.push(new THREE.Path(h.map(([z, y]) => new THREE.Vector2(z, y))));
   const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 2, curveSegments: 6 });
