@@ -78,7 +78,7 @@ const local = {
   sim: Sim.newPlayerState(), prev: Sim.newPlayerState(), seq: 0, pending: [], outbox: [], acc: 0,
   yaw: 0, pitch: 0, recoilPitch: 0, recoilYaw: 0, hp: 100, alive: true, errorOffset: new THREE.Vector3(),
   cd: { shield: 0, scan: 0, shieldOn: 0 }, cdAt: 0, killedBy: '', deadAt: 0, stepDist: 0, wasOg: true,
-  shotsInBurst: 0, lastFireT: 0, sh: 50, shRegen: false
+  shotsInBurst: 0, lastFireT: 0, sh: 50, shRegen: false, streak: 0, circle: null, burnNoticeAt: 0
 };
 const remotes = new Map(); // id -> { buffer: [], state, stepDist, xrayUntil, lastFlags }
 
@@ -114,7 +114,7 @@ document.addEventListener('mousemove', e => {
   // Browsers can report a huge bogus delta right after the pointer locks; drop it.
   if (skipMouse > 0) { skipMouse--; return; }
   if (Math.abs(e.movementX) > 300 || Math.abs(e.movementY) > 300) return;
-  const k = 0.0021 * sensitivity * (aimDown ? 0.6 : 1);
+  const k = 0.0021 * sensitivity * (weapon && weapon.scoped ? 0.3 : aimDown ? 0.6 : 1);
   local.yaw -= e.movementX * k; local.pitch = THREE.MathUtils.clamp(local.pitch - e.movementY * k, -1.4, 1.4);
   mouseDX += e.movementX; mouseDY += e.movementY;
 });
@@ -130,7 +130,7 @@ function ability(type) { if (phase === 'playing' && local.alive) socket.emit('ab
 // touch controls (phones/tablets): floating stick, drag-to-aim, fire-and-aim button, ability buttons
 const touch = new TouchControls({
   onLook: (dx, dy) => {
-    const k = 0.0055 * sensitivity * (touch.aim ? 0.55 : 1);
+    const k = 0.0055 * sensitivity * (weapon && weapon.scoped ? 0.3 : touch.aim ? 0.55 : 1);
     local.yaw -= dx * k; local.pitch = THREE.MathUtils.clamp(local.pitch - dy * k, -1.3, 1.3);
     mouseDX += dx * 2; mouseDY += dy * 2;
   },
@@ -147,7 +147,7 @@ $('goLandscape').addEventListener('click', () => goLandscape());
 // ------------------------------------------------------------------ classes
 const CLASS_INFO = [
   { blurb: 'VX-9 rifle', stats: '100 HP · 1 dash', icon: '<path d="M5 13a7 7 0 0 1 14 0v2H5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15h14M8 11h8" stroke="currentColor" stroke-width="1.8"/><path d="M9 18h6" stroke="currentColor" stroke-width="1.8"/>' },
-  { blurb: 'VX-9 rifle · fastest', stats: '85 HP · 3 dashes', icon: '<path d="M12 3c-4 3-6 7-6 11a6 6 0 0 0 12 0c0-4-2-8-6-11z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13l2 1M15 13l-2 1" stroke="currentColor" stroke-width="2"/>' },
+  { blurb: 'Sniper · 5 in a row = beam', stats: '85 HP · 3 dashes', icon: '<path d="M12 3c-4 3-6 7-6 11a6 6 0 0 0 12 0c0-4-2-8-6-11z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13l2 1M15 13l-2 1" stroke="currentColor" stroke-width="2"/>' },
   { blurb: 'Greatsword · kill → shotgun', stats: '130 HP · 1 dash', icon: '<path d="M12 2l2 3v11h-4V5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 16h12M12 16v5" stroke="currentColor" stroke-width="2"/>' }
 ];
 let classChoice = Sim.CLASSES[store.get('cls', 0)] ? store.get('cls', 0) : 0;
@@ -294,6 +294,7 @@ socket.on('snap', snap => {
     if (snap.sh > local.sh && local.sh < C.shield && !local.shRegen && local.alive) { local.shRegen = true; audio.play('shieldUp', { volume: 0.45, reverb: 0.05, bus: 'ui' }); }
     if (snap.sh < local.sh || snap.sh >= C.shield) local.shRegen = snap.sh < C.shield && snap.sh > local.sh;
     local.sh = snap.sh;
+    local.streak = snap.st || 0;
   }
   local.cd = snap.cd; local.cdAt = nowT;
   reconcile(snap);
@@ -334,9 +335,9 @@ socket.on('shot', shot => {
   const r = remotes.get(shot.id);
   const muzzle = shooter && r && r.state && r.state.alive ? shooter.muzzleWorld(new THREE.Vector3()) : new THREE.Vector3(...shot.o);
   const dir = end.clone().sub(muzzle).normalize();
-  fx.tracer(muzzle, end, shooter ? shooter.color : 0xff36c7);
-  fx.muzzleFlash(muzzle, dir, shooter ? shooter.color.clone().lerp(new THREE.Color(0xffd0a0), 0.5) : 0xffb070, 0.6);
-  audio.gunshot(muzzle);
+  fx.tracer(muzzle, end, shot.w === 'sn' ? 0xa8b8ff : shooter ? shooter.color : 0xff36c7);
+  fx.muzzleFlash(muzzle, dir, shooter ? shooter.color.clone().lerp(new THREE.Color(0xffd0a0), 0.5) : 0xffb070, shot.w === 'sn' ? 0.9 : 0.6);
+  if (shot.w === 'sn') audio.sniperShot(muzzle); else audio.gunshot(muzzle);
   if (shot.h) {
     const victim = avatars.get(shot.h);
     if (victim) victim.flinch(dir);
@@ -373,6 +374,46 @@ function remoteShotgun(shot) {
   if (shot.pe.some(p => p.h)) audio.play('impactBody', { pos: first, volume: 0.8 });
   else if (impacts) audio.play(impactSound(shot.pe.find(p => p.n)?.k), { pos: first, volume: 0.8 });
 }
+socket.on('ultReady', u => {
+  if (u.id === myId) { audio.play('ultReady', { volume: 0.8, bus: 'ui' }); hud.notice('OBLITERATION BEAM READY · NEXT SHOT', 2200); }
+});
+socket.on('ultCharge', u => {
+  const r = remotes.get(u.id);
+  if (!r) return;
+  if (r.circle) r.circle.cancel();
+  r.circle = fx.magicCircle(out => {
+    const st = r.state; if (!st) return;
+    const f = Sim.aimDirection(st.yaw, st.pitch); out.dir.set(f.x, f.y, f.z);
+    out.pos.set(st.x, st.y + 1.45, st.z).addScaledVector(out.dir, 2.2);
+  }, Sim.ULT_CHARGE_TICKS * Sim.DT);
+  const st = r.state;
+  if (st) audio.play('ultCharge', { pos: new THREE.Vector3(st.x, st.y + 1.5, st.z), volume: 1.6, ref: 8, rolloff: 0.6, reverb: 0.4 });
+  const name = meta?.players.find(p => p.id === u.id)?.name || 'AN ASSASSIN';
+  hud.notice(`${name.toUpperCase()} IS CHARGING A BEAM`, 1500);
+});
+socket.on('beam', b => {
+  const o = new THREE.Vector3(...b.o), axis = { x: b.d[0], y: 0, z: b.d[1] };
+  if (b.id !== myId) {
+    const r = remotes.get(b.id);
+    if (r && r.circle) { r.circle.fire(); r.circle = null; }
+    fx.beam(o.clone().setY(o.y - 0.3), axis, Sim.BEAM_LENGTH, Sim.BEAM_RADIUS);
+    audio.play('beamFire', { pos: o, volume: 2.2, ref: 20, rolloff: 0.4, reverb: 0.7 });
+    beamFlash = 0.8; damage.shake = Math.min(1, damage.shake + 0.8);
+  }
+  // the half of the alley it went into is left burning
+  const spots = [], sec = b.ms / 1000;
+  const jit = () => (Math.random() - 0.5) * 3;
+  if (b.zone.axis === 'z') {
+    for (let z = 3; z < Sim.HALF_Z - 1; z += 6.5) for (let x = -Sim.HALF_X + 2; x < Sim.HALF_X - 1; x += 6.2) spots.push({ x: x + jit(), y: 0.05, z: b.zone.sign * (z + jit()) });
+  } else {
+    for (let x = 2; x < Sim.HALF_X; x += 4.5) for (let z = -Sim.HALF_Z + 3; z < Sim.HALF_Z - 1; z += 6.5) spots.push({ x: b.zone.sign * (x + jit() * 0.4), y: 0.05, z: z + jit() });
+  }
+  for (let i = spots.length - 1; i >= 0; i--) if (!Sim.isFree(spots[i].x, 0, spots[i].z)) spots.splice(i, 1);
+  fx.addTempFires(spots, sec);
+  fx.scorch(b.zone, sec);
+  for (let i = 0; i < Math.min(5, spots.length); i++) audio.tempLoop('fireLoop', { x: spots[(i * 7) % spots.length].x, y: 0.5, z: spots[(i * 7) % spots.length].z }, 0.9, sec);
+  if (Sim.inFireZone(b.zone, local.sim) && b.id !== myId) hud.notice('THE ALLEY IS ON FIRE · GET UP HIGH', 2000);
+});
 socket.on('swing', w => {
   const a = avatars.get(w.id), st = remotes.get(w.id)?.state;
   if (a) a.swing();
@@ -401,7 +442,8 @@ socket.on('hit', h => {
   const pos = new THREE.Vector3(...h.p);
   const victim = avatars.get(h.id);
   if (victim && !h.blocked) victim.flinch(new THREE.Vector3().subVectors(pos, cameraEye()).normalize());
-  if (h.blocked) { hud.hitmarker('blocked'); hud.damageNumber('IMMUNE', 'shield', pos); return; }
+  if (h.blocked) { if (h.w !== 'fire') { hud.hitmarker('blocked'); hud.damageNumber('IMMUNE', 'shield', pos); } return; }
+  if (h.w === 'fire' && !h.k) return; // your flames are burning someone: no hit-marker spam
   fx.playerHit(pos, new THREE.Vector3().subVectors(pos, cameraEye()).normalize(), h.w === 'sword' ? EMBER : victim ? victim.color : 0xffffff, h.part === 'head');
   hud.hitmarker(h.k ? 'kill' : h.part === 'head' ? 'head' : '');
   hud.damageNumber(String(h.d), h.part === 'head' ? 'head' : h.shielded || h.sh ? 'shield' : '', pos);
@@ -412,7 +454,8 @@ socket.on('hit', h => {
   if (h.k) {
     setTimeout(() => audio.play('kill', { volume: 0.6, reverb: 0.1, vary: 0, bus: 'ui' }), 70);
     const name = meta?.players.find(p => p.id === h.id)?.name || 'RUNNER';
-    hud.killBanner(`<span class="pts">+${h.part === 'head' ? 125 : 100}</span><span class="who">ELIMINATED ${escapeHtml(name.toUpperCase())}</span>${h.part === 'head' ? ' <span class="hs">· HEADSHOT</span>' : ''}`);
+    const how = h.w === 'beam' ? 'OBLITERATED' : h.w === 'fire' ? 'BURNED' : 'ELIMINATED';
+    hud.killBanner(`<span class="pts">+${h.part === 'head' ? 125 : 100}</span><span class="who">${how} ${escapeHtml(name.toUpperCase())}</span>${h.part === 'head' ? ' <span class="hs">· HEADSHOT</span>' : ''}`);
   }
 });
 
@@ -423,6 +466,12 @@ socket.on('hurt', h => {
   if (h.brk) { audio.play('shieldBreak', { volume: 0.7, bus: 'ui' }); hud.notice('SHIELD BROKEN', 900); }
   else if (h.sh > 0) audio.play('shieldHit', { volume: 0.45, vary: 0.08, bus: 'ui' });
   if (h.w === 'sword') audio.play('swordHit', { volume: 0.9, reverb: 0.1 });
+  if (h.w === 'fire') {
+    const nowT = performance.now();
+    if (nowT - local.burnNoticeAt > 2500) { local.burnNoticeAt = nowT; hud.notice('BURNING · GET OUT OR GET UP HIGH', 1400); audio.play('hurt', { volume: 0.5, reverb: 0.1 }); }
+    damage.pulse = Math.min(0.5, damage.pulse + 0.06);
+    return;
+  }
   const shieldOnly = h.sh > 0 && !h.brk; // the shield took all of it: lighter screen hit
   damage.pulse = Math.min(0.8, damage.pulse + h.d / (shieldOnly ? 160 : 60)); damage.shake = Math.min(1, damage.shake + h.d / 40);
   const dx = h.from[0] - local.sim.x, dz = h.from[1] - local.sim.z;
@@ -435,7 +484,10 @@ socket.on('killed', k => {
   const victim = avatars.get(k.victim), pos = new THREE.Vector3(...k.pos);
   fx.death(pos, victim ? victim.color : 0xffffff);
   audio.play('death', { pos: pos.clone().setY(pos.y + 1), volume: 1, reverb: 0.5 });
+  const vr = remotes.get(k.victim);
+  if (vr && vr.circle) { vr.circle.cancel(); vr.circle = null; }
   if (k.victim === myId) {
+    if (local.circle) { local.circle.cancel(); local.circle = null; }
     local.alive = false; local.deadAt = performance.now();
     local.killedBy = meta?.players.find(p => p.id === k.killer)?.name || '';
     local.deathPos = pos.clone();
@@ -460,7 +512,7 @@ socket.on('scanPulse', d => {
   scanFlash = 1;
   hud.notice(`NEURAL SCAN · ${d.players.length} SIGNAL${d.players.length === 1 ? '' : 'S'}`);
 });
-let scanFlash = 0;
+let scanFlash = 0, beamFlash = 0;
 
 function syncAvatars(players) {
   const ids = new Set(players.map(p => p.id));
@@ -542,9 +594,10 @@ function handleLocalEvents(ev, wasOg, input) {
     local.lastFireT = now;
     // effects from the predicted shot (server decides damage)
     cameraEye(_o);
-    const d = Sim.aimDirection(s.yaw, s.pitch); _d.set(d.x, d.y, d.z);
-    const wh = Sim.raycastWorld(_o, d, Sim.MAX_RANGE);
-    let endT = wh ? wh.t : Sim.MAX_RANGE, hitPlayer = null;
+    const sn = !!ev.sniper, range = sn ? Sim.SNIPER_RANGE : Sim.MAX_RANGE;
+    const d = sn ? Sim.sniperDir(s.yaw, s.pitch, input.s, ev.scoped) : Sim.aimDirection(s.yaw, s.pitch); _d.set(d.x, d.y, d.z);
+    const wh = Sim.raycastWorld(_o, d, range);
+    let endT = wh ? wh.t : range, hitPlayer = null;
     for (const [id, r] of remotes) {
       if (!r.state || !r.state.alive) continue;
       const h = Sim.rayPlayer(_o, d, r.state, endT);
@@ -554,10 +607,11 @@ function handleLocalEvents(ev, wasOg, input) {
     weapon.fire(aimDown);
     camera.updateMatrixWorld();
     const muzzle = weapon.muzzleWorld(camera, _m);
-    fx.tracer(muzzle, end, 0x7ff8ff);
-    fx.flashLight(muzzle, 0xffb070, 10);
-    audio.gunshot(null, true);
+    fx.tracer(ev.scoped ? _o.clone().addScaledVector(_d, 0.6).setY(_o.y - 0.08) : muzzle, end, sn ? 0xa8b8ff : 0x7ff8ff);
+    fx.flashLight(muzzle, sn ? 0xc0c8ff : 0xffb070, sn ? 16 : 10);
+    if (sn) audio.sniperShot(null, true); else audio.gunshot(null, true);
     if (!hitPlayer && wh) { fx.impact(end, wh.n, wh.kind); audio.play(impactSound(wh.kind), { pos: end, volume: 0.7 }); }
+    if (sn) { local.recoilPitch += ev.scoped ? 0.035 : 0.06; local.recoilYaw += (Math.random() - 0.5) * 0.01; camShake.kick = 1.8; touch.buzz(25); return finishEvents(ev, wasOg); }
     // shell ejection
     const port = weapon.ejectWorld(camera, _e);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
@@ -567,6 +621,29 @@ function handleLocalEvents(ev, wasOg, input) {
     local.recoilPitch += (0.018 + Math.min(local.shotsInBurst, 8) * 0.0018) * k;
     local.recoilYaw += (Math.sin(local.shotsInBurst * 1.7) * 0.004 + (Math.random() - 0.5) * 0.004) * k;
     camShake.kick = 1;
+  }
+  finishEvents(ev, wasOg);
+}
+function finishEvents(ev, wasOg) {
+  const s = local.sim;
+  // Obliteration Beam: rune circle builds up in front of you, then the beam goes off
+  if (ev.ultStart) {
+    if (local.circle) local.circle.cancel();
+    local.circle = fx.magicCircle(out => {
+      const f = Sim.aimDirection(local.yaw + local.recoilYaw, local.pitch);
+      out.dir.set(f.x, f.y, f.z); cameraEye(out.pos).addScaledVector(out.dir, 2.4); out.pos.y -= 0.15;
+    }, Sim.ULT_CHARGE_TICKS * Sim.DT);
+    audio.play('ultCharge', { volume: 0.9, reverb: 0.3 });
+    hud.notice('OBLITERATION · CHARGING', 1500);
+  }
+  if (ev.ultFire) {
+    if (local.circle) { local.circle.fire(); local.circle = null; }
+    const o = cameraEye(new THREE.Vector3()), a = Sim.beamAxis(s.yaw);
+    fx.beam(o.setY(o.y - 0.3), a, Sim.BEAM_LENGTH, Sim.BEAM_RADIUS);
+    audio.play('beamFire', { volume: 1.0, reverb: 0.6 });
+    audio.duck(0.05, 1.5);
+    beamFlash = 0.75; camShake.kick = 4; damage.shake = 1; touch.buzz(200);
+    local.recoilPitch += 0.12;
   }
   if (ev.swing) {
     weapon.swing();
@@ -610,7 +687,7 @@ function updateRemotes(dt) {
     const a = avatars.get(id);
     const s = sampleRemote(r, t);
     if (!a || !s) continue;
-    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64) };
+    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64), charging: !!(s.flags & 256), ultReady: !!(s.flags & 512) };
     // steps & dash trails
     if (st.alive && r.state && st.og) {
       r.stepDist += Math.hypot(st.x - r.state.x, st.z - r.state.z);
@@ -661,7 +738,8 @@ function updateCamera(dt, alpha) {
     roll = 0.35 * k;
   } else camera.position.set(x, camY, z);
   camera.rotation.set(pitch, yaw, roll);
-  const targetFov = (aimDown && local.alive && Sim.weaponOf(s) !== 'sword' ? 56 : 78) + camShake.dash * 10;
+  const w = Sim.weaponOf(s), scoped = weapon && weapon.scoped;
+  const targetFov = (aimDown && local.alive && w !== 'sword' ? (scoped ? 22 : w === 'sniper' ? 50 : 56) : 78) + camShake.dash * 10 - (s.ultT > 0 ? (1 - s.ultT / Sim.ULT_CHARGE_TICKS) * 8 : 0);
   fovCur += (targetFov - fovCur) * (1 - Math.exp(-dt * 12));
   if (Math.abs(camera.fov - fovCur) > 0.01) { camera.fov = fovCur; camera.updateProjectionMatrix(); }
 }
@@ -706,23 +784,29 @@ function frame() {
     hud.ammo(s.ammo, s.reload, wpn);
     hud.status(!pointerLocked && !isTouch ? 'CLICK TO LOCK AIM' : !local.alive ? 'REDEPLOYING…'
       : wpn === 'sword' ? 'HOLD FIRE TO SWING · KILL TO REFORGE' : wpn === 'shotgun' ? `PYRE SHOTGUN · ${s.ammo} LEFT`
+      : s.ultT > 0 ? 'OBLITERATION CHARGING…' : s.ult === 1 ? 'OBLITERATION READY · FIRE TO CHARGE'
+      : wpn === 'sniper' && s.reload === 0 && s.ammo > 0 ? (isTouch ? 'TAP ADS TO SCOPE' : 'RIGHT-CLICK TO SCOPE')
       : s.reload > 0 ? 'RELOADING…' : s.ammo === 0 ? 'EMPTY — PRESS R' : 'VX-9 ENERGY RIFLE');
     const since = now - local.cdAt;
     // dash: dark only when no charges are left; the badge shows how many remain
     hud.ability('dashBtn', s.dashN > 0 ? 0 : s.dashCd / C.dashRecharge, s.dashT > 0);
     hud.dashCharges(s.dashN, C.dashes, s.dashN < C.dashes ? s.dashCd / C.dashRecharge : 0);
+    hud.ult(wpn === 'sniper', Math.min(Sim.ULT_STREAK, local.streak), s.ult === 1, s.ultT > 0);
+    hud.scope(!!weapon.scoped && local.alive);
     hud.ability('shieldBtn', Math.max(0, local.cd.shield - since) / 9000, local.cd.shieldOn - since > 0);
     hud.ability('scanBtn', Math.max(0, local.cd.scan - since) / 12000, false);
     const moveSpread = Math.hypot(s.vx, s.vz) * 1.2 + (s.og ? 0 : 8);
-    hud.crosshair(moveSpread + local.recoilPitch * 300 + (wpn === 'shotgun' ? 14 : 0), aimDown && local.alive && wpn !== 'sword');
+    hud.crosshair(moveSpread + local.recoilPitch * 300 + (wpn === 'shotgun' ? 14 : wpn === 'sniper' ? 12 : 0), aimDown && local.alive && wpn !== 'sword');
     hud.net(`${Math.round(ping)} MS · ${fps} FPS · ${qualityName.toUpperCase()}`);
     hud.death(!local.alive, local.killedBy, Math.max(0, 2.5 - (now - local.deadAt) / 1000));
     hud.updateDamageNumbers(dt, camera);
-    weapon.update({ dt, moveSpeed: Math.hypot(s.vx, s.vz), grounded: s.og, aiming: aimDown, mouseDX, mouseDY, reloadTicks: s.reload, ammo: s.ammo, alive: local.alive, dashing: s.dashT > 0, mode: wpn });
+    weapon.update({ dt, moveSpeed: Math.hypot(s.vx, s.vz), grounded: s.og, aiming: aimDown, mouseDX, mouseDY, reloadTicks: s.reload, ammo: s.ammo, alive: local.alive, dashing: s.dashT > 0, mode: wpn,
+      charging: s.ultT > 0 ? 1 - s.ultT / Sim.ULT_CHARGE_TICKS : 0, ultReady: s.ult === 1 });
     const g = post.grade.uniforms;
     g.damage.value = damage.pulse; g.lowHp.value = local.alive && local.hp <= 35 ? (35 - local.hp) / 35 * 0.8 + 0.2 : 0;
     g.dead.value += ((local.alive ? 0 : 1) - g.dead.value) * (1 - Math.exp(-dt * 4));
     scanFlash *= Math.exp(-dt * 3); g.scan.value = scanFlash;
+    beamFlash *= Math.exp(-dt * 2.2); g.flash.value = beamFlash;
   } else {
     attractCamera(dt);
     if (weapon) weapon.update({ dt, moveSpeed: 0, grounded: true, aiming: false, mouseDX: 0, mouseDY: 0, reloadTicks: 0, ammo: Sim.MAG_SIZE, alive: false, dashing: false });
@@ -764,6 +848,12 @@ async function boot() {
     magOut: () => audio.play('magOut', { volume: 0.55, reverb: 0.1 }),
     magIn: () => audio.play('magIn', { volume: 0.6, reverb: 0.1 }),
     charge: () => audio.play('charge', { volume: 0.6, reverb: 0.1 }),
+    bolt: () => {
+      audio.play('bolt', { volume: 0.65, reverb: 0.1 });
+      const port = weapon.ejectWorld(camera, _e), s = local.sim;
+      const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+      fx.shell(port, right.multiplyScalar(1.8 + Math.random()).addScaledVector(up, 1.4).add(new THREE.Vector3(s.vx, s.vy, s.vz)));
+    },
     pump: () => {
       audio.play('sgPump', { volume: 0.6, reverb: 0.1 });
       const port = weapon.ejectWorld(camera, _e), s = local.sim;

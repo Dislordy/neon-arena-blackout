@@ -21,6 +21,7 @@ The project has **two tracks** in one repository:
 | V4.1–V4.4 | Audio remix, realistic gunfire, mobile landscape + touch HUD, in-game ☰ menu |
 | V4.5 | Classes: Soldier / Assassin (3 dash charges) / Knight (greatsword → shotgun on kill, 130 HP); regenerating energy shields |
 | V4.6 | "The Alley": 32×112 m back-alley map with invisible end walls, grim/rugged atmosphere, lighter default graphics (Medium) |
+| V4.7 | Assassin sniper rifle (scope, bolt action) + Obliteration Beam after 5 kills in a row (charge-up, huge beam, burning half of the map) |
 
 Details: `CHANGELOG.md`.
 

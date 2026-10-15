@@ -289,6 +289,55 @@ const designs = {
     mixInto(out, sweepSine(Math.round(sr * 0.3), sr, 120, 45, 12), 0.9, Math.round(sr * 0.46));
     return fadeEdges(normalize(softclip(out, 1.4), 0.8), sr);
   },
+  /** Longwire sniper: the rifle blast plus a sharper supersonic crack and a deep, long boom. */
+  snShot(sr, v = 0) {
+    const base = designs.shot(sr, v + 7), n = Math.round(sr * 1.6);
+    const ch = (src, seed) => {
+      const c = new Float32Array(n); mixInto(c, src, 1.1);
+      const nw = Math.max(3, Math.round(sr * 0.0003));
+      for (let i = 0; i < nw * 2; i++) c[i] += (i < nw ? 1 : -1) * Math.sin(Math.PI * (i % nw) / nw) * 1.2;
+      mixInto(c, env(lp(lp(noise(n, seed), 90, sr), 80, sr), sr, t => Math.min(1, t * 200) * Math.exp(-t * 2.6)), 14);
+      return c;
+    };
+    return stereoFinish(ch(base.L, 650 + v), ch(base.R, 660 + v), sr, 0.98);
+  },
+  /** Bolt action: lift, pull back (case pings out), push forward, lock. */
+  bolt(sr) {
+    const n = Math.round(sr * 0.55), out = new Float32Array(n);
+    const clack = (at, f1, f2, g) => { const o = Math.round(sr * at); mixInto(out, env(hp(noise(Math.round(sr * 0.04), 670 + at * 100), 1800, sr), sr, t => Math.exp(-t * 280)), g, o); mixInto(out, partials(Math.round(sr * 0.1), sr, [f1, f2], [50, 80], [0.5, 0.3]), g * 0.5, o); };
+    clack(0.0, 1500, 3300, 0.6); clack(0.09, 1150, 2600, 0.8); clack(0.13, 5200, 7600, 0.25); clack(0.3, 1300, 2900, 0.9); clack(0.38, 900, 2100, 1.0);
+    return fadeEdges(normalize(out, 0.7), sr);
+  },
+  /** Obliteration Beam charge-up: a choir-like hum that rises and tightens for 1.6 s, glassy shimmer on top. */
+  ultCharge(sr) {
+    const n = Math.round(sr * 1.75), out = new Float32Array(n);
+    for (const [f, a] of [[110, 1], [165, 0.7], [220, 0.6], [330, 0.4], [440, 0.25]]) {
+      let ph = 0;
+      for (let i = 0; i < n; i++) { const t = i / sr, k = Math.min(1, t / 1.6); ph += TAU * f * (1 + k * k * 1.5) / sr; out[i] += Math.sin(ph + Math.sin(t * 6 + f) * 0.3) * a * (0.15 + k * k) * Math.min(1, (1.75 - t) * 20); }
+    }
+    mixInto(out, env(hp(noise(n, 680), 4000, sr), sr, t => Math.min(1, t / 1.6) ** 3 * Math.min(1, (1.75 - t) * 20)), 0.35);
+    for (let i = 0; i < 18; i++) mixInto(out, partials(Math.round(sr * 0.3), sr, [2000 + i * 260, 3100 + i * 300], [12, 16], [0.3, 0.2]), 0.12 + i * 0.01, Math.round(sr * i * 0.085));
+    return fadeEdges(normalize(out, 0.75), sr);
+  },
+  /** The beam fires: a white-out boom, a tearing sizzle and a long thunderous tail. */
+  beamFire(sr) {
+    const n = Math.round(sr * 4.5);
+    const ch = seed => {
+      const c = new Float32Array(n);
+      mixInto(c, env(lp(noise(n, seed), 6000, sr), sr, t => Math.min(1, t * 900) * Math.exp(-t * 18)), 1.4);
+      mixInto(c, env(lp(lp(lp(noise(n, seed + 1), 100, sr), 90, sr), 80, sr), sr, t => Math.min(1, t * 120) * Math.exp(-t * 0.9)), 22);
+      mixInto(c, env(hp(noise(n, seed + 2), 2500, sr), sr, t => Math.min(1, t * 50) * Math.exp(-t * 1.6) * (0.6 + 0.4 * Math.sin(t * 90))), 0.45);
+      mixInto(c, env(sweepSine(n, sr, 900, 60, 0, { k: 0.15, shape: 'saw' }), sr, t => Math.exp(-t * 1.3)), 0.25);
+      return softclip(c, 1.8);
+    };
+    return stereoFinish(ch(690), ch(691), sr, 0.98);
+  },
+  /** Five in a row: the beam is ready. */
+  ultReady(sr) {
+    const n = Math.round(sr * 1.4), out = new Float32Array(n);
+    [523, 659, 784, 1047].forEach((f, i) => mixInto(out, env(partials(Math.round(sr * 0.9), sr, [f, f * 2, f * 3.01], [3, 5, 8], [1, 0.3, 0.15]), sr, t => Math.min(1, t * 80)), 0.5, Math.round(sr * i * 0.09)));
+    return fadeEdges(normalize(out, 0.6), sr);
+  },
   /** Bullet absorbed by an energy shield: soft electric thud. */
   shieldHit(sr) {
     const n = Math.round(sr * 0.16), out = sweepSine(n, sr, 900, 300, 30, { k: 1.2 });
@@ -411,7 +460,7 @@ function loopable(b, sr) {
 // ------------------------------------------------------------------ engine
 // Mix levels (0..1). Ambience sits well under the action and ducks whenever a gun fires.
 const MIX = { ambience: 0.42, sfx: 1.0, ui: 0.85, reverb: 0.28 };
-const VARIANTS = { shot: 4, shotFar: 2, step: 6, sgShot: 2, swordSwing: 3 };
+const VARIANTS = { shot: 4, shotFar: 2, step: 6, sgShot: 2, swordSwing: 3, snShot: 2 };
 
 export class AudioEngine {
   constructor() { this.ctx = null; this.buffers = {}; this.voices = 0; this.enabled = false; this.volume = 0.8; this.muted = false; }
@@ -624,6 +673,30 @@ export class AudioEngine {
     setTimeout(() => this.duck(0.45, 0.2), delay * 1000);
     this.reflections(name, pos, 1.1);
     return this.play(name, { pos, volume: 1.4, reverb: 0.55, ref: 5, rolloff: 0.85, vary: 0.04, delay, lowpass: d > 24 ? 2200 : undefined });
+  }
+  /** Longwire sniper: like the rifle, but louder, deeper and it echoes for longer. */
+  sniperShot(pos, own = false) {
+    const name = this.pick('snShot');
+    if (own) {
+      this.duck(0.15, 0.4);
+      if (this.listenerPos) this.reflections(name, this.listenerPos, 1.0);
+      return this.play(name, { volume: 1.0, reverb: 0.6, vary: 0.02 });
+    }
+    const d = this.distanceTo(pos), delay = d / 343;
+    setTimeout(() => this.duck(0.4, 0.25), delay * 1000);
+    this.reflections(name, pos, 1.2);
+    return this.play(name, { pos, volume: 1.6, reverb: 0.7, ref: 8, rolloff: 0.7, vary: 0.03, delay, lowpass: d > 30 ? 3000 : undefined });
+  }
+  /** Keep a looping sound going at a spot for a while (fires in the burning half of the alley). */
+  tempLoop(name, pos, volume, seconds) {
+    if (!this.enabled) return;
+    const ctx = this.ctx, src = ctx.createBufferSource(); src.buffer = this.buffers[name]; src.loop = true;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0, ctx.currentTime); g.gain.linearRampToValueAtTime(volume, ctx.currentTime + 1);
+    g.gain.setValueAtTime(volume, ctx.currentTime + Math.max(1, seconds - 2)); g.gain.linearRampToValueAtTime(0, ctx.currentTime + seconds);
+    const p = ctx.createPanner(); p.panningModel = 'HRTF'; p.distanceModel = 'inverse'; p.refDistance = 3; p.rolloffFactor = 1.2;
+    if (p.positionX) { p.positionX.value = pos.x; p.positionY.value = pos.y; p.positionZ.value = pos.z; } else p.setPosition(pos.x, pos.y, pos.z);
+    src.connect(p); p.connect(g); g.connect(this.sfx);
+    src.start(0, Math.random() * src.buffer.duration); src.stop(ctx.currentTime + seconds + 0.1);
   }
   swordSwing(pos, own = false) {
     const name = this.pick('swordSwing');

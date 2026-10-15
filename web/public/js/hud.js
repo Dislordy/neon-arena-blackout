@@ -34,10 +34,10 @@ export class Hud {
   /** weapon: 'rifle' | 'sword' | 'shotgun' */
   ammo(ammo, reloadTicks, weapon = 'rifle') {
     this.set('weapon', weapon, w => {
-      const mag = w === 'shotgun' ? Sim.SHOTGUN_SHELLS : w === 'rifle' ? Sim.MAG_SIZE : 0;
+      const mag = Sim.magOf(w);
       this.pips.forEach((p, i) => { p.style.display = i < mag ? '' : 'none'; });
       $('ammo').nextElementSibling.textContent = mag ? ` / ${mag}` : '';
-      $('weaponName').textContent = w === 'sword' ? 'CINDER OATH GREATSWORD' : w === 'shotgun' ? 'PYRE SHOTGUN · ' + Sim.SHOTGUN_SHELLS + ' SHELLS' : 'VX-9 ENERGY RIFLE';
+      $('weaponName').textContent = w === 'sword' ? 'CINDER OATH GREATSWORD' : w === 'shotgun' ? 'PYRE SHOTGUN · ' + Sim.SHOTGUN_SHELLS + ' SHELLS' : w === 'sniper' ? 'LONGWIRE SNIPER RIFLE' : 'VX-9 ENERGY RIFLE';
       $('ammo').parentElement.classList.toggle('melee', w === 'sword');
       $('crosshair').dataset.mode = w;
       this.last.ammo = undefined;
@@ -45,11 +45,21 @@ export class Hud {
     this.set('ammo', weapon === 'sword' ? '⚔' : ammo, v => {
       $('ammo').textContent = v;
       if (weapon !== 'sword') this.pips.forEach((p, i) => p.classList.toggle('spent', i >= v));
-      $('ammo').parentElement.classList.toggle('low', weapon === 'rifle' ? v <= 6 : weapon === 'shotgun' && v <= 1);
+      $('ammo').parentElement.classList.toggle('low', weapon === 'rifle' ? v <= 6 : (weapon === 'shotgun' || weapon === 'sniper') && v <= 1);
     });
-    const r = reloadTicks > 0 && weapon === 'rifle' ? 1 - reloadTicks / Sim.RELOAD_TICKS : 0;
+    const r = reloadTicks > 0 && weapon === 'rifle' ? 1 - reloadTicks / Sim.RELOAD_TICKS : reloadTicks > 0 && weapon === 'sniper' ? 1 - reloadTicks / Sim.SNIPER_RELOAD_TICKS : 0;
     this.set('reload', Math.round(r * 100), v => { $('reloadFill').style.width = v + '%'; });
   }
+  /** Assassin kill-streak meter (5 in a row = Obliteration Beam). */
+  ult(show, streak, ready, charging) {
+    this.set('ult', `${show}|${streak}|${ready}|${charging}`, () => {
+      $('ultBox').classList.toggle('hidden', !show);
+      $('ultBox').classList.toggle('ready', ready || charging);
+      $('ultLabel').textContent = charging ? 'CHARGING…' : ready ? 'OBLITERATION READY · FIRE' : 'STREAK';
+      [...$('ultPips').children].forEach((p, i) => p.classList.toggle('on', ready || charging || i < streak));
+    });
+  }
+  scope(on) { this.set('scope', on, v => { $('scope').classList.toggle('hidden', !v); $('crosshair').style.visibility = v ? 'hidden' : ''; }); }
   /** Dash-charge badge (top-right of the dash buttons): charges left and the next charge's refill progress. */
   dashCharges(n, max, refillFrac) {
     this.set('dashc', n + '/' + max + '/' + Math.round(refillFrac * 20), () => {

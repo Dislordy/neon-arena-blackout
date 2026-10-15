@@ -204,6 +204,36 @@ async function test(name, fn) {
     assert.strictEqual(pb.sim.dashN, 3);
   });
 
+  await test('assassin: 5 kills in a row charge the beam; it kills through walls and sets that half on fire', async () => {
+    const ult = []; a.sock.on('ultReady', u => ult.push(u)); const beams = []; b.sock.on('beam', x => beams.push(x));
+    place(pa, -12, -26, 0, 1); place(pb, -12, -36, Math.PI);
+    pa.streak = Sim.ULT_STREAK - 1;
+    await wait(80);
+    const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 10);
+    // two scoped body shots (80 + 80 > 100 HP + 50 shield)
+    await a.stream(80, { yaw: 0, pitch, b: Sim.BTN.FIRE | Sim.BTN.ADS });
+    await wait(150);
+    assert.ok(!pb.sim.alive, 'fifth kill');
+    assert.strictEqual(pa.sim.ult, 1, 'beam charged');
+    assert.ok(ult.some(u => u.id === a.sock.id));
+    // B respawns; put B on the far side of the bus, then fire the beam down the alley (+z, yaw = 180deg)
+    await b.stream(170, {});
+    place(pb, 0, 12, 0); place(pa, 0, -20, Math.PI, 1); pa.sim.ult = 1;
+    await wait(80);
+    a.send(1, { yaw: Math.PI, b: Sim.BTN.FIRE });
+    await a.stream(Sim.ULT_CHARGE_TICKS + 10, { yaw: Math.PI });
+    await wait(150);
+    assert.ok(!pb.sim.alive, 'beam goes through the bus');
+    assert.ok(beams.length === 1 && beams[0].zone.axis === 'z' && beams[0].zone.sign === 1);
+    assert.ok(room.fireZone && room.fireZone.by === a.sock.id);
+    // after respawn, standing in the burning half hurts; the shooter is immune
+    await b.stream(170, {});
+    place(pb, 5, 30, 0); pa.hp = 85; pa.sim.z = 20;
+    await b.stream(60, {});
+    assert.ok(pb.hp + pb.shield < 150, 'burning: hp ' + pb.hp + ' sh ' + pb.shield);
+    assert.strictEqual(pa.hp, 85);
+  });
+
   a.sock.close(); b.sock.close();
   console.log(`server: ${passed} passed`);
   setTimeout(() => process.exit(process.exitCode || 0), 50);

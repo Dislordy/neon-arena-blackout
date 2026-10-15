@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
-import { buildSword, buildShotgun, emberMaterial } from './classgear.js';
+import { buildSword, buildShotgun, emberMaterial, buildSniper, arcMaterial } from './classgear.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const Sim = window.NeonSim;
@@ -182,6 +182,15 @@ export class Weapon {
     const la = this.makeGauntlet(); la.position.set(-0.01, -0.035, 0.02); la.rotation.set(0.25, -0.55, 0.3); this.sg.pump.add(la);
     this.adsShotgun = new THREE.Vector3(0, -0.05, -0.34);
     this.swordRig.visible = this.shotgunRig.visible = false;
+    // ---- assassin sniper rifle
+    this.arc = arcMaterial(2.0); this.arcBase = this.arc.color.clone();
+    this.sniperRig = new THREE.Group(); this.root.add(this.sniperRig);
+    this.sn = buildSniper({ glow: this.arc }); this.sniperRig.add(this.sn.group);
+    const sra = this.makeCyberArm(); sra.position.set(0.0, -0.11, 0.1); sra.rotation.set(0.4, 0.25, 0); this.sniperRig.add(sra);
+    const sla = this.makeGauntlet(); sla.position.set(-0.005, -0.05, -0.42); sla.rotation.set(0.25, -0.55, 0.3); this.sniperRig.add(sla);
+    this.adsSniper = new THREE.Vector3(0, -this.sn.scopeY, -0.2);
+    this.sniperRig.visible = false;
+    this.boltT = -1; this.charge = 0;
   }
 
   /** 'rifle' | 'sword' | 'shotgun' */
@@ -189,7 +198,8 @@ export class Weapon {
     if (mode === this.mode) return;
     const prev = this.mode; this.mode = mode;
     this.gun.visible = mode === 'rifle'; this.swordRig.visible = mode === 'sword'; this.shotgunRig.visible = mode === 'shotgun';
-    const host = mode === 'shotgun' ? this.sg : null;
+    this.sniperRig.visible = mode === 'sniper';
+    const host = mode === 'shotgun' ? this.sg : mode === 'sniper' ? this.sn : null;
     if (host) { this.muzzle = host.muzzle; this.ejectPort = host.ejectPort; host.group.add(this.flashGroup); this.flashGroup.position.copy(host.muzzle.position); }
     else { this.muzzle = this.rifleMuzzle; this.ejectPort = this.rifleEject; this.gun.add(this.flashGroup); this.flashGroup.position.copy(this.rifleMuzzle.position); }
     this.swingT = -1; this.pumpT = -1; this.inspectT = -1; this.slashArc.visible = false;
@@ -213,6 +223,15 @@ export class Weapon {
   }
 
   fire(aiming) {
+    if (this.mode === 'sniper') {
+      const k = aiming ? 0.5 : 1;
+      this.recoilZ.kick(3.0 * k); this.recoilRot.kick((10 + Math.random() * 2) * k);
+      this.recoilYaw.kick((Math.random() - 0.5) * 2 * k); this.recoilRoll.kick((Math.random() - 0.5) * 5 * k);
+      this.flash = 0.06; this.flashGroup.visible = !aiming; this.flashGroup.rotation.z = Math.random() * Math.PI;
+      this.flashGroup.scale.setScalar(1.2); this.flashLight.intensity = 5;
+      this.boltT = 0; this.inspectT = -1;
+      return;
+    }
     if (this.mode === 'shotgun') {
       const k = aiming ? 0.7 : 1;
       this.recoilZ.kick(3.4 * k); this.recoilRot.kick((13 + Math.random() * 3) * k);
@@ -264,7 +283,8 @@ export class Weapon {
     if (rifle && key !== this.lastAmmo) { this.lastAmmo = key; this.drawAmmo(s.ammo, reloading); }
     if (this.mode === 'shotgun') this.sg.lamps.forEach((l, i) => { l.visible = i < s.ammo; });
 
-    this.aim = lerp(this.aim, s.aiming && !reloading && s.alive && this.mode !== 'sword' ? 1 : 0, 1 - Math.exp(-dt * 14));
+    const snReload = this.mode === 'sniper' && s.reloadTicks > 0;
+    this.aim = lerp(this.aim, s.aiming && !reloading && !snReload && s.alive && this.mode !== 'sword' && this.boltT < 0 ? 1 : 0, 1 - Math.exp(-dt * (this.mode === 'sniper' ? 10 : 14)));
     this.equip = Math.min(1, this.equip + dt * 2.2);
     this.lowerT = lerp(this.lowerT, s.alive ? 0 : 1, 1 - Math.exp(-dt * 6));
     const aimK = 1 - this.aim * 0.85;
@@ -288,11 +308,16 @@ export class Weapon {
     this.animateReload(rlT);
     if (this.mode === 'sword') this.animateSwing(dt);
     if (this.mode === 'shotgun') this.animatePump(dt);
+    if (this.mode === 'sniper') { this.animateBolt(dt, snReload ? 1 - s.reloadTicks / Sim.SNIPER_RELOAD_TICKS : -1); if (snReload) rlT = 1 - s.reloadTicks / Sim.SNIPER_RELOAD_TICKS; }
+    // Obliteration Beam charge-up: the rifle hums, trembles and its arc lights burn brighter
+    this.charge = s.charging || 0;
+    this.arc.color.copy(this.arcBase).multiplyScalar(1 + this.charge * 5 + (s.ultReady ? 0.6 + Math.sin(performance.now() * 0.008) * 0.4 : 0));
     // ember glow surges on transformation and shotgun blasts
     this.surge = Math.max(0, this.surge - dt * 1.8);
     this.ember.color.copy(this.emberBase).multiplyScalar(1 + this.surge * 2.5 + Math.sin(performance.now() * 0.005) * 0.1);
 
-    const base = new THREE.Vector3().lerpVectors(this.hip, this.mode === 'shotgun' ? this.adsShotgun : this.ads, ease(this.aim));
+    const base = new THREE.Vector3().lerpVectors(this.hip, this.mode === 'shotgun' ? this.adsShotgun : this.mode === 'sniper' ? this.adsSniper : this.ads, ease(this.aim));
+    if (this.charge > 0) { const k = this.charge * 0.006; base.x += (Math.random() - 0.5) * k; base.y += (Math.random() - 0.5) * k; base.z += 0.04 * this.charge; }
     const tiltIn = rlT >= 0 ? ease(seg(rlT, 0, 0.15)) * (1 - ease(seg(rlT, 0.82, 1))) : 0;
     const dashTilt = s.dashing ? 1 : 0;
     this.dashT = lerp(this.dashT || 0, dashTilt, 1 - Math.exp(-dt * 12));
@@ -348,7 +373,9 @@ export class Weapon {
     this.flashLight.position.set(this.root.position.x, this.root.position.y + 0.05, this.root.position.z - 0.6);
     this.reticle.material.opacity = 0.3 + this.aim * 0.7;
     this.reticle.visible = rifle;
-    this.root.visible = this.lowerT < 0.97;
+    // looking through the sniper scope: the HUD draws the scope, the rifle itself is hidden
+    this.scoped = this.mode === 'sniper' && this.aim > 0.9;
+    this.root.visible = this.lowerT < 0.97 && !this.scoped;
     // FOV for ADS (viewmodel camera)
     this.camera.fov = lerp(60, 48, this.aim); this.camera.updateProjectionMatrix();
   }
@@ -381,6 +408,25 @@ export class Weapon {
     // the forearm follows the wrist part-way
     this.swordArm.position.copy(P.position);
     this.swordArm.rotation.set(0.5 + (v[3] - this.swordRest[3]) * 0.35, 0.3 + v[4] * 0.4, (v[5] - this.swordRest[5]) * 0.3);
+  }
+
+  /** Bolt cycle after each sniper shot (and a mag swap during reloads). */
+  animateBolt(dt, reloadT) {
+    const B = this.sn.bolt, H = this.sn.boltHome;
+    if (this.boltT >= 0) {
+      const prev = this.boltT;
+      this.boltT += dt / (Sim.SNIPER_TICKS * Sim.DT);
+      if (prev < 0.3 && this.boltT >= 0.3 && this.events.bolt) this.events.bolt();
+      const up = ease(seg(this.boltT, 0.25, 0.35)) * (1 - ease(seg(this.boltT, 0.65, 0.75)));
+      const back = ease(seg(this.boltT, 0.35, 0.48)) * (1 - ease(seg(this.boltT, 0.52, 0.65)));
+      B.position.set(H.x, H.y, H.z + back * 0.07); B.rotation.z = -up * 1.2;
+      if (this.boltT >= 1) { this.boltT = -1; B.position.copy(H); B.rotation.z = 0; }
+    }
+    const M = this.sn.mag, MH = this.sn.magHome;
+    if (reloadT >= 0) {
+      const drop = ease(seg(reloadT, 0.15, 0.35)) * (1 - ease(seg(reloadT, 0.55, 0.75)));
+      M.position.set(MH.x, MH.y - drop * 0.3, MH.z); M.visible = !(reloadT > 0.35 && reloadT < 0.55);
+    } else { M.position.copy(MH); M.visible = true; }
   }
 
   animatePump(dt) {

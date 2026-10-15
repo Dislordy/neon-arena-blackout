@@ -204,6 +204,53 @@ export class Effects {
   /** World hooks: steam vents [{x,z,y?,dark?}], burning barrels [{x,y,z,small?}], snapped cables [{x,y,z}]. */
   setVents(list) { this.vents = list.map(v => ({ ...v, t: Math.random() })); }
   setFires(list) { this.fires = list.map(f => ({ ...f, t: 0, e: Math.random() })); }
+  /** Temporary fires (the burning half of the alley after an Obliteration Beam). */
+  addTempFires(list, seconds) {
+    const until = this.time + seconds;
+    for (const f of list) this.fires.push({ ...f, t: Math.random() * 0.2, e: Math.random(), until, big: true });
+    this.burnUntil = Math.max(this.burnUntil || 0, until); this.burnSpots = list;
+  }
+
+  // ---------------------------------------------------------------- Obliteration Beam
+  /** Rune circle that builds up in front of the shooter. pose(out) fills { pos, dir } every frame. */
+  magicCircle(pose, duration) {
+    if (!this.circleTex) this.circleTex = runeCircleTextures();
+    const g = new THREE.Group(); this.scene.add(g);
+    const mk = (tex, size, k) => {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshBasicMaterial({ map: tex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, color: new THREE.Color(0x6f8dff).multiplyScalar(k), fog: false }));
+      m.frustumCulled = false; m.renderOrder = 12; g.add(m); return m;
+    };
+    const outer = mk(this.circleTex.outer, 3.2, 3), inner = mk(this.circleTex.inner, 1.9, 4);
+    inner.position.z = 0.15;
+    const c = { g, outer, inner, pose, t: 0, duration, state: 'charge', fade: 0, p: { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, 0, -1) } };
+    c.fire = () => { c.state = 'fire'; c.fade = 0; };
+    c.cancel = () => { c.state = 'gone'; };
+    (this.circles || (this.circles = [])).push(c);
+    return c;
+  }
+  /** The beam itself: a white-hot core inside a 14 m-wide blue column, with sparkles streaming off it. */
+  beam(origin, axis, length, radius) {
+    if (!this.beamMat) this.beamMat = beamMaterial();
+    const g = new THREE.Group(); this.scene.add(g);
+    const geo = new THREE.CylinderGeometry(1, 1, 1, 48, 1, true); geo.translate(0, 0.5, 0); geo.rotateX(Math.PI / 2);
+    const core = new THREE.Mesh(geo, this.beamMat.clone()); core.scale.set(radius * 0.32, radius * 0.32, length); core.material.uniforms.core.value = 1;
+    const shell = new THREE.Mesh(geo, this.beamMat.clone()); shell.scale.set(radius, radius * 0.75, length);
+    for (const m of [core, shell]) { m.frustumCulled = false; m.renderOrder = 11; g.add(m); }
+    g.position.copy(origin); g.lookAt(origin.x + axis.x, origin.y, origin.z + axis.z);
+    (this.beams || (this.beams = [])).push({ g, core, shell, t: 0, origin: origin.clone(), axis: new THREE.Vector3(axis.x, 0, axis.z), length, radius });
+    this.ring(origin, 0x8fa8ff, radius * 2.5, 0.9);
+    for (let i = 0; i < 6; i++) this.flashLight(_v.set(origin.x + axis.x * i * 12, 2, origin.z + axis.z * i * 12), 0xbfd0ff, 140, 0.6);
+  }
+  /** Charred ground over the burning half of the alley. zone = { axis, sign } */
+  scorch(zone, seconds) {
+    if (!this.scorchTex) this.scorchTex = scorchTexture();
+    const lenZ = zone.axis === 'z', w = lenZ ? 2 * Sim.HALF_X : Sim.HALF_X, l = lenZ ? Sim.HALF_Z : 2 * Sim.HALF_Z;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), new THREE.MeshStandardMaterial({ map: this.scorchTex, transparent: true, opacity: 0, depthWrite: false, roughness: 0.95, metalness: 0, polygonOffset: true, polygonOffsetFactor: -2 }));
+    m.rotation.x = -Math.PI / 2;
+    if (lenZ) m.position.set(0, 0.012, zone.sign * Sim.HALF_Z / 2); else { m.position.set(zone.sign * Sim.HALF_X / 2, 0.012, 0); }
+    m.receiveShadow = true; this.scene.add(m);
+    (this.scorches || (this.scorches = [])).push({ m, t: 0, life: seconds + 8 });
+  }
   setSparks(list) { this.sparkSpots = list; }
 
   // ---------------------------------------------------------------- spawners
@@ -377,10 +424,12 @@ export class Effects {
     // barrel fires: licking flames, rising embers, a thin column of smoke
     for (const F of this.fires) {
       F.t -= dt; F.e -= dt;
-      const k = F.small ? 0.6 : 1;
+      const k = F.small ? 0.6 : F.big ? 1.6 : 1;
       for (let n = 0; F.t <= 0 && n < 6; n++) { // catch up at low frame rates
-        F.t += 0.035 / k;
-        this.glow.spawn(F.x + rnd(0.22 * k), F.y, F.z + rnd(0.22 * k), rnd(0.15), 1.1 + Math.random() * 0.8, rnd(0.15),
+        F.t += F.big ? 0.06 : 0.035 / k;
+        if (F.big) this.glow.spawn(F.x + rnd(0.8), F.y, F.z + rnd(0.8), rnd(0.3), 1.8 + Math.random() * 1.2, rnd(0.3),
+          { life: 0.5 + Math.random() * 0.4, size: 1.1, endSize: 0.15, color: [2.0, 0.6 + Math.random() * 0.3, 0.12], drag: 1.0, gravity: -1.0 });
+        else this.glow.spawn(F.x + rnd(0.22 * k), F.y, F.z + rnd(0.22 * k), rnd(0.15), 1.1 + Math.random() * 0.8, rnd(0.15),
           { life: 0.35 + Math.random() * 0.25, size: 0.42 * k, endSize: 0.05, color: [2.2, 0.75 + Math.random() * 0.35, 0.18], drag: 1.2, gravity: -1.2 });
         if (Math.random() < 0.25) this.smoke.spawn(F.x + rnd(0.2), F.y + 0.7, F.z + rnd(0.2), rnd(0.1), 0.9, rnd(0.1), { life: 3, size: 0.25, endSize: 1.6, alpha: 0.16, color: [0.08, 0.07, 0.06], drag: 0.3, spin: rnd(0.4) });
       }
@@ -410,8 +459,119 @@ export class Effects {
         this.debris.spawn(x, y + 0.02, z, rnd(0.5), 0.6 + Math.random() * 0.6, rnd(0.5), { life: 0.22, size: 0.012, color: [0.55, 0.65, 0.8], gravity: 9.8, alpha: 0.45 });
       }
     }
+    // rune circles: grow, spin, draw sparks inward; flare and vanish when the beam fires
+    if (this.circles) for (let i = this.circles.length - 1; i >= 0; i--) {
+      const c = this.circles[i];
+      c.pose(c.p);
+      c.g.position.copy(c.p.pos); c.g.lookAt(c.p.pos.x + c.p.dir.x, c.p.pos.y + c.p.dir.y, c.p.pos.z + c.p.dir.z);
+      if (c.state === 'charge') {
+        c.t += dt; const k = Math.min(1, c.t / c.duration), e = 1 - Math.pow(1 - Math.min(1, k * 1.4), 3);
+        c.g.scale.setScalar(0.05 + e * (1 + Math.sin(this.time * 18) * 0.03 * k));
+        c.outer.rotation.z += dt * (0.6 + k * 2); c.inner.rotation.z -= dt * (1.2 + k * 4);
+        c.outer.material.opacity = c.inner.material.opacity = Math.min(1, k * 3);
+        const R = 1.5 * e;
+        for (let n = 0; n < 2 + k * 6; n++) { // sparks drawn into the circle
+          const a = Math.random() * 6.283, r = R * (1 + Math.random() * 0.6);
+          _v.set(Math.cos(a) * r, Math.sin(a) * r, 0).applyQuaternion(c.g.quaternion).add(c.p.pos);
+          const toC = c.p.pos.clone().sub(_v).multiplyScalar(2.5);
+          this.glow.spawn(_v.x, _v.y, _v.z, toC.x, toC.y, toC.z, { life: 0.4, size: 0.05, endSize: 0, color: [0.8, 1.0, 2.6], drag: 0.5 });
+        }
+        if (Math.random() < 0.5) this.flashLight(c.p.pos, 0x8fa8ff, 10 + k * 60, 0.12);
+        if (c.t > c.duration + 1.5) c.state = 'gone'; // never fired (shooter died)
+      } else if (c.state === 'fire') {
+        c.fade += dt; c.g.scale.multiplyScalar(1 + dt * 3);
+        c.outer.material.opacity = c.inner.material.opacity = Math.max(0, 1 - c.fade / 0.5);
+        if (c.fade > 0.5) c.state = 'gone';
+      }
+      if (c.state === 'gone') { this.scene.remove(c.g); c.outer.geometry.dispose(); c.inner.geometry.dispose(); c.outer.material.dispose(); c.inner.material.dispose(); this.circles.splice(i, 1); }
+    }
+    if (this.beams) for (let i = this.beams.length - 1; i >= 0; i--) {
+      const B = this.beams[i]; B.t += dt;
+      const a = B.t < 0.08 ? B.t / 0.08 : B.t < 0.7 ? 1 : Math.max(0, 1 - (B.t - 0.7) / 0.9);
+      for (const m of [B.core, B.shell]) { m.material.uniforms.time.value = this.time; m.material.uniforms.alpha.value = a; }
+      B.shell.scale.x = B.radius * (1 + Math.sin(B.t * 40) * 0.04); B.shell.scale.y = B.radius * 0.75 * (1 + Math.cos(B.t * 37) * 0.04);
+      if (a > 0.3) for (let n = 0; n < 24; n++) { // sparkles streaming off the beam
+        const d = Math.random() * B.length, ang = Math.random() * 6.283, r = B.radius * (0.3 + Math.random() * 0.8);
+        const x = B.origin.x + B.axis.x * d - B.axis.z * Math.cos(ang) * r, z = B.origin.z + B.axis.z * d + B.axis.x * Math.cos(ang) * r, y = B.origin.y + Math.sin(ang) * r * 0.7;
+        this.glow.spawn(x, Math.max(0.1, y), z, B.axis.x * 6 + rnd(1), rnd(1), B.axis.z * 6 + rnd(1), { life: 0.5 + Math.random() * 0.5, size: 0.06 + Math.random() * 0.06, endSize: 0, color: [1.2, 1.5, 3.0], drag: 1 });
+      }
+      if (B.t > 1.6) { this.scene.remove(B.g); B.core.material.dispose(); B.shell.material.dispose(); this.beams.splice(i, 1); }
+    }
+    if (this.scorches) for (let i = this.scorches.length - 1; i >= 0; i--) {
+      const S = this.scorches[i]; S.t += dt;
+      S.m.material.opacity = Math.min(0.85, S.t * 2) * Math.min(1, Math.max(0, (S.life - S.t) / 4));
+      if (S.t > S.life) { this.scene.remove(S.m); S.m.geometry.dispose(); S.m.material.dispose(); this.scorches.splice(i, 1); }
+    }
+    // the burning half: flickering firelight hops between the flames; spent fires go out
+    if (this.burnUntil > this.time && this.burnSpots && Math.random() < 0.35) {
+      const f = this.burnSpots[(Math.random() * this.burnSpots.length) | 0];
+      this.flashLight(_v.set(f.x, 1.2, f.z), 0xff7a2a, 30 + Math.random() * 20, 0.18);
+    }
+    if (this.fires.some(f => f.until && f.until < this.time)) this.fires = this.fires.filter(f => !f.until || f.until >= this.time);
     if (this.dust) this.dust.material.uniforms.time.value = this.time;
   }
+}
+
+// ------------------------------------------------------------------ beam assets
+function runeCircleTextures() {
+  const make = (draw) => { const c = document.createElement('canvas'); c.width = c.height = 1024; const x = c.getContext('2d'); x.translate(512, 512); x.strokeStyle = '#fff'; x.fillStyle = '#fff'; x.shadowColor = '#9fb4ff'; x.shadowBlur = 18; draw(x); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+  const ring = (x, r, w) => { x.lineWidth = w; x.beginPath(); x.arc(0, 0, r, 0, Math.PI * 2); x.stroke(); };
+  const glyph = (x, sx, sy, s, seed) => { // invented runes: a few strokes per glyph
+    let k = seed;
+    const r = () => { k = (k * 16807) % 2147483647; return (k % 1000) / 1000; };
+    x.lineWidth = 3; x.beginPath();
+    for (let i = 0; i < 3; i++) { x.moveTo(sx + (r() - 0.5) * s, sy + (r() - 0.5) * s); x.lineTo(sx + (r() - 0.5) * s, sy + (r() - 0.5) * s); }
+    if (r() > 0.5) { x.moveTo(sx + s * 0.3, sy); x.arc(sx, sy, s * 0.3, 0, Math.PI * 2); }
+    x.stroke();
+  };
+  const outer = make(x => {
+    ring(x, 500, 10); ring(x, 470, 4); ring(x, 380, 6); ring(x, 360, 3);
+    for (let i = 0; i < 40; i++) { const a = i / 40 * Math.PI * 2; x.save(); x.rotate(a); glyph(x, 0, -425, 34, i * 97 + 13); x.restore(); }
+    for (let i = 0; i < 6; i++) { // six small circles on the ring, like seals
+      const a = i / 6 * Math.PI * 2; x.save(); x.rotate(a); x.translate(0, -265); ring(x, 52, 5); ring(x, 30, 3); glyph(x, 0, 0, 30, i * 31 + 7); x.restore();
+    }
+  });
+  const inner = make(x => {
+    ring(x, 330, 6);
+    x.lineWidth = 5; x.beginPath(); // hexagram
+    for (const off of [0, Math.PI / 3]) { for (let i = 0; i <= 3; i++) { const a = off + i / 3 * Math.PI * 2 - Math.PI / 2; const px = Math.cos(a) * 320, py = Math.sin(a) * 320; if (i) x.lineTo(px, py); else x.moveTo(px, py); } }
+    x.stroke();
+    ring(x, 160, 5); ring(x, 90, 8);
+    for (let i = 0; i < 12; i++) { const a = i / 12 * Math.PI * 2; x.save(); x.rotate(a); glyph(x, 0, -125, 24, i * 53 + 3); x.restore(); }
+    const g = x.createRadialGradient(0, 0, 0, 0, 0, 120); g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = g; x.beginPath(); x.arc(0, 0, 120, 0, Math.PI * 2); x.fill();
+  });
+  return { outer, inner };
+}
+function beamMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { time: { value: 0 }, alpha: { value: 1 }, core: { value: 0 } },
+    vertexShader: `varying vec3 vN; varying vec3 vV; varying vec2 vUv; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position,1.0); vV = -mv.xyz; vN = normalize(normalMatrix * normal); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: `uniform float time; uniform float alpha; uniform float core; varying vec3 vN; varying vec3 vV; varying vec2 vUv;
+      float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+      float n(vec2 p){ vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f); return mix(mix(h(i), h(i+vec2(1,0)), f.x), mix(h(i+vec2(0,1)), h(i+vec2(1,1)), f.x), f.y); }
+      void main(){
+        float facing = pow(abs(dot(normalize(vN), normalize(vV))), mix(3.0, 1.2, core));
+        float flow = n(vec2(vUv.x * 18.0, vUv.y * 60.0 - time * 40.0)) * 0.5 + n(vec2(vUv.x * 40.0, vUv.y * 140.0 - time * 70.0)) * 0.5;
+        float tip = smoothstep(0.0, 0.01, vUv.y) * (1.0 - smoothstep(0.92, 1.0, vUv.y));
+        // fade surfaces right next to the camera so standing beside (or inside) the beam isn't a white wall
+        float near = smoothstep(1.5, 12.0, length(vV));
+        vec3 col = mix(vec3(0.25, 0.4, 1.3), vec3(1.6, 1.75, 2.1), core);
+        float a = facing * (0.35 + flow * 0.65) * tip * alpha * near * (core > 0.5 ? 1.1 : 0.32);
+        gl_FragColor = vec4(col * a, 1.0);
+      }`,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false
+  });
+}
+function scorchTexture() {
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  for (let i = 0; i < 260; i++) {
+    const px = Math.random() * 512, py = Math.random() * 512, r = 10 + Math.random() * 60;
+    const g = x.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, 'rgba(8,6,5,0.75)'); g.addColorStop(1, 'rgba(8,6,5,0)');
+    x.fillStyle = g; x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
+  }
+  for (let i = 0; i < 60; i++) { x.fillStyle = `rgba(255,${80 + Math.random() * 60 | 0},20,${0.3 + Math.random() * 0.4})`; x.fillRect(Math.random() * 512, Math.random() * 512, 2 + Math.random() * 3, 2 + Math.random() * 3); } // glowing cinders
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 5);
+  return t;
 }
 const rnd = s => (Math.random() * 2 - 1) * s;
 /** Height of the highest walkable surface under (x,z) that is below y. */

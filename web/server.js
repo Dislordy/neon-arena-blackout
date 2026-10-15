@@ -106,9 +106,9 @@ function placeAtSpawn(room, p) {
 function stopTimer(room) { if (room.timer) clearInterval(room.timer); room.timer = null; }
 function startMatch(room) {
   if (room.players.size < 2 || room.phase === 'playing') return false;
-  room.phase = 'playing'; room.endsAt = now() + MATCH_MS; room.feed = []; room.winner = null; room.tick = 0;
+  room.phase = 'playing'; room.endsAt = now() + MATCH_MS; room.feed = []; room.winner = null; room.tick = 0; room.fireZone = null;
   for (const p of room.players.values()) {
-    Object.assign(p, { score: 0, kills: 0, deaths: 0, queue: [], budget: 0, shieldUntil: 0, shieldCdUntil: 0, scanCdUntil: 0, respawnAt: 0 });
+    Object.assign(p, { score: 0, kills: 0, deaths: 0, streak: 0, queue: [], budget: 0, shieldUntil: 0, shieldCdUntil: 0, scanCdUntil: 0, respawnAt: 0 });
   }
   for (const p of room.players.values()) placeAtSpawn(room, p);
   addFeed(room, 'BLACKOUT initiated. Good hunting.');
@@ -202,8 +202,16 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
   if (killed) {
     target.sim.alive = false; target.deaths++;
     target.respawnAt = t + RESPAWN_MS;
+    target.streak = 0; target.sim.ult = 0; target.sim.ultT = 0; // dying loses the streak and a charged beam
     shooter.kills++; shooter.score += part === 'head' ? 125 : 100;
-    const how = weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
+    shooter.streak = (shooter.streak || 0) + 1;
+    // Assassin: 5 kills in a row charge the Obliteration Beam (the next shot)
+    if (Sim.weaponOf(shooter.sim) === Sim.WEAPON.SNIPER && shooter.sim.alive && shooter.streak >= Sim.ULT_STREAK && !shooter.sim.ult && !shooter.sim.ultT) {
+      shooter.sim.ult = 1; shooter.streak = 0;
+      io.to(room.code).emit('ultReady', { id: shooter.id });
+      addFeed(room, `${shooter.name} has the OBLITERATION BEAM`, 'kill');
+    }
+    const how = weapon === 'beam' ? '✦ OBLITERATED' : weapon === 'fire' ? '🔥 burned' : weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
     addFeed(room, `${shooter.name} ${how} ${target.name}`, 'kill');
     io.to(room.code).emit('killed', { killer: shooter.id, victim: target.id, head: part === 'head', w: weapon, pos: [r3(target.sim.x), r3(target.sim.y), r3(target.sim.z)] });
     // knight reward: the greatsword transforms into a shotgun
@@ -213,14 +221,15 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
   return killed;
 }
 
-function handleShot(room, shooter, viewTime) {
+function handleShot(room, shooter, input, ev) {
   const t = now();
   const s = shooter.sim;
+  const sniper = !!ev.sniper, range = sniper ? Sim.SNIPER_RANGE : Sim.MAX_RANGE;
   const origin = Sim.eyeOf(s);
-  const dir = Sim.aimDirection(s.yaw, s.pitch);
-  const world = Sim.raycastWorld(origin, dir, Sim.MAX_RANGE);
-  const maxT = world ? world.t : Sim.MAX_RANGE;
-  const best = rayTargets(room, shooter, origin, dir, maxT, rewindTime(t, viewTime));
+  const dir = sniper ? Sim.sniperDir(s.yaw, s.pitch, input.s, ev.scoped) : Sim.aimDirection(s.yaw, s.pitch);
+  const world = Sim.raycastWorld(origin, dir, range);
+  const maxT = world ? world.t : range;
+  const best = rayTargets(room, shooter, origin, dir, maxT, rewindTime(t, input.vt));
   const end = endPoint(origin, dir, best ? best.t : maxT);
   const shot = {
     id: shooter.id, o: v3(origin), e: v3(end),
@@ -228,9 +237,36 @@ function handleShot(room, shooter, viewTime) {
     k: !best && world ? world.kind : null,
     h: best ? best.target.id : null
   };
+  if (sniper) shot.w = 'sn';
   io.to(room.code).except(shooter.id).emit('shot', shot);
   if (!best) return;
-  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t), best.part, end, Sim.WEAPON.RIFLE);
+  const weapon = sniper ? Sim.WEAPON.SNIPER : Sim.WEAPON.RIFLE;
+  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, weapon), best.part, end, weapon);
+}
+
+/** Obliteration Beam: everyone in its 14 m-wide path dies (walls don't stop it); that half of the alley burns. */
+function handleBeam(room, shooter) {
+  const t = now(), s = shooter.sim;
+  const origin = Sim.eyeOf(s), axis = Sim.beamAxis(s.yaw);
+  for (const target of room.players.values()) {
+    if (target === shooter || !target.sim.alive) continue;
+    if (Sim.inBeam(origin, axis, target.sim)) applyDamage(room, shooter, target, 9999, 'body', { x: target.sim.x, y: target.sim.y + 1, z: target.sim.z }, 'beam');
+  }
+  const zone = Sim.fireZoneFor(origin, axis);
+  room.fireZone = Object.assign({ by: shooter.id, until: t + Sim.FIRE_ZONE_MS, next: t + 250 }, zone);
+  io.to(room.code).emit('beam', { id: shooter.id, o: v3(origin), d: [r3(axis.x), r3(axis.z)], zone, ms: Sim.FIRE_ZONE_MS });
+}
+function burnFireZone(room, t) {
+  const z = room.fireZone;
+  if (!z) return;
+  const owner = room.players.get(z.by);
+  if (t >= z.until || !owner) { room.fireZone = null; return; }
+  if (t < z.next) return;
+  z.next = t + 250;
+  for (const p of room.players.values()) {
+    if (p === owner || !p.sim.alive || !Sim.inFireZone(z, p.sim)) continue;
+    applyDamage(room, owner, p, Sim.FIRE_DPS / 4, 'body', { x: p.sim.x, y: p.sim.y + 0.5, z: p.sim.z }, 'fire');
+  }
 }
 
 /** Shotgun: 8 pellets (same seeded spread as the shooter's client); damage is summed per target. */
@@ -305,7 +341,9 @@ function tickRoom(room) {
       p.lastSeq = input.s;
       const ev = Sim.stepPlayer(p.sim, input);
       if (ev.fire && ev.shotgun) handleShotgun(room, p, input);
-      else if (ev.fire) handleShot(room, p, input.vt);
+      else if (ev.fire) handleShot(room, p, input, ev);
+      if (ev.ultStart) io.to(room.code).except(p.id).emit('ultCharge', { id: p.id });
+      if (ev.ultFire) handleBeam(room, p);
       if (ev.swing) handleSwing(room, p, input.vt);
       if (ev.sheathe) io.to(room.code).emit('sheathe', { id: p.id });
     }
@@ -319,6 +357,7 @@ function tickRoom(room) {
       emitMeta(room);
     }
   }
+  burnFireZone(room, t);
   recordHistory(room, t);
   if (room.tick % Sim.SNAPSHOT_EVERY === 0) sendSnapshots(room, t);
 }
@@ -326,7 +365,7 @@ function sendSnapshots(room, t) {
   const others = [];
   for (const p of room.players.values()) {
     const s = p.sim;
-    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0);
+    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0) | (s.ultT > 0 ? 256 : 0) | (s.ult === 1 ? 512 : 0);
     others.push([p.id, r3(s.x), r3(s.y), r3(s.z), r3(s.yaw), r3(s.pitch), flags, r3(s.vx), r3(s.vz)]);
   }
   for (const p of room.players.values()) {
@@ -334,7 +373,7 @@ function sendSnapshots(room, t) {
     io.to(p.id).emit('snap', {
       t: Math.round(t * 10) / 10,
       ack: p.lastSeq,
-      me, hp: p.hp, sh: Math.round(p.shield), tp: p.teleported || false,
+      me, hp: p.hp, sh: Math.round(p.shield), st: p.streak || 0, tp: p.teleported || false,
       cd: { shield: Math.max(0, p.shieldCdUntil - t), scan: Math.max(0, p.scanCdUntil - t), shieldOn: Math.max(0, p.shieldUntil - t) },
       ps: others
     });
@@ -389,7 +428,7 @@ io.on('connection', socket => {
     const color = COLORS.find(c => !used.has(c)) || COLORS[room.players.size % COLORS.length];
     const cls = validClass(rawCls);
     const p = {
-      id: socket.id, name, color, score: 0, kills: 0, deaths: 0, hp: 100, shield: 0, hurtAt: 0, nextCls: cls,
+      id: socket.id, name, color, score: 0, kills: 0, deaths: 0, streak: 0, hp: 100, shield: 0, hurtAt: 0, nextCls: cls,
       sim: Sim.newPlayerState(0, 0, cls), queue: [], budget: 0, lastSeq: -1, history: [],
       protectUntil: 0, shieldUntil: 0, shieldCdUntil: 0, scanCdUntil: 0, respawnAt: 0, teleported: true
     };
@@ -453,6 +492,7 @@ io.on('connection', socket => {
     if (!room || !p) return;
     if (d.place) { Object.assign(p.sim, { x: +d.place.x || 0, y: 0, z: +d.place.z || 0, vx: 0, vz: 0, yaw: +d.place.yaw || 0 }); p.teleported = true; p.history = []; }
     if (d.grant) Sim.grantShotgun(p.sim);
+    if (d.ult) p.sim.ult = 1;
     if (d.protect === false) p.protectUntil = 0;
   });
 

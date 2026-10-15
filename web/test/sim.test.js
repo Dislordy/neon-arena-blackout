@@ -199,4 +199,46 @@ test('weapon damage: shotgun falls off hard, sword is flat', () => {
   assert.strictEqual(Sim.damageFor('body', 2, false, 'sword'), Sim.SWORD_DAMAGE);
 });
 
+test('assassin sniper: 5-round bolt action, reloads, scoped shots are dead accurate', () => {
+  const p = Sim.newPlayerState(-12, -24, 1);
+  assert.strictEqual(Sim.weaponOf(p), 'sniper');
+  assert.strictEqual(p.ammo, Sim.SNIPER_MAG);
+  let shots = 0;
+  for (let i = 0; i < 120; i++) if (Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })).fire) shots++;
+  assert.strictEqual(shots, 2, '2 s of fire = 2 bolt-action shots');
+  p.ammo = 0; p.fireCd = 0;
+  assert.ok(Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })).reloadStart);
+  run(p, input(), Sim.SNIPER_RELOAD_TICKS);
+  assert.strictEqual(p.ammo, Sim.SNIPER_MAG);
+  const f = Sim.aimDirection(0.4, 0.1);
+  assert.deepStrictEqual(Sim.sniperDir(0.4, 0.1, 9, true), f);
+  const hip = Sim.sniperDir(0.4, 0.1, 9, false), ang = Math.acos(Math.min(1, hip.x * f.x + hip.y * f.y + hip.z * f.z));
+  assert.ok(ang > 0 && ang <= 0.051, 'hip spread ' + ang);
+  assert.deepStrictEqual(hip, Sim.sniperDir(0.4, 0.1, 9, false), 'seeded: client and server agree');
+  assert.strictEqual(Sim.damageFor('head', 120, false, 'sniper'), 150);
+});
+
+test('obliteration beam: charge-up slows you, then it fires on its own', () => {
+  const p = Sim.newPlayerState(-12, -24, 1); p.ult = 1;
+  const ev = Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE }));
+  assert.ok(ev.ultStart && !ev.fire); assert.strictEqual(p.ammo, Sim.SNIPER_MAG, 'the beam costs no ammo');
+  let fired = 0, z0 = p.z;
+  for (let i = 0; i < Sim.ULT_CHARGE_TICKS + 5; i++) if (Sim.stepPlayer(p, input({ mz: 1 })).ultFire) fired = i + 1;
+  assert.strictEqual(fired, Sim.ULT_CHARGE_TICKS);
+  assert.ok(z0 - p.z < 6.7 * 1.7 * 0.45, 'slowed while charging: moved ' + (z0 - p.z));
+  assert.strictEqual(p.ult, 0);
+});
+
+test('beam path and the burning half of the alley', () => {
+  const o = { x: 0, y: 1.6, z: -50 }, axis = Sim.beamAxis(Math.PI); // looking +z down the alley
+  assert.ok(Sim.inBeam(o, axis, { x: 5, y: 0, z: 30 }));
+  assert.ok(!Sim.inBeam(o, axis, { x: 10, y: 0, z: 30 }), 'outside the 14 m beam');
+  assert.ok(!Sim.inBeam(o, axis, { x: 0, y: 0, z: -55 }), 'behind the shooter');
+  const zone = Sim.fireZoneFor(o, axis);
+  assert.deepStrictEqual(zone, { axis: 'z', sign: 1 });
+  assert.ok(Sim.inFireZone(zone, { x: 3, y: 0, z: 20 }));
+  assert.ok(!Sim.inFireZone(zone, { x: 3, y: 0, z: -20 }));
+  assert.ok(!Sim.inFireZone(zone, { x: 15, y: Sim.CATWALK_TOP, z: 20 }), 'fire escapes are safe');
+});
+
 console.log(`sim: ${passed} passed`);

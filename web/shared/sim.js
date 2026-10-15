@@ -45,11 +45,11 @@
   // Every runner has health + a regenerating energy shield that soaks damage first.
   const SHIELD_REGEN_DELAY_MS = 3500;   // no damage for this long -> shield starts refilling
   const SHIELD_REGEN_PER_S = 25;
-  const WEAPON = { RIFLE: 'rifle', SWORD: 'sword', SHOTGUN: 'shotgun' };
+  const WEAPON = { RIFLE: 'rifle', SWORD: 'sword', SHOTGUN: 'shotgun', SNIPER: 'sniper' };
   const CLASSES = [
     { id: 0, key: 'soldier', name: 'SOLDIER', hp: 100, shield: 50, speed: MOVE_SPEED, dashes: 1, dashRecharge: DASH_COOLDOWN_TICKS, dashGap: 0, weapon: WEAPON.RIFLE },
-    // three dash charges that refill one at a time
-    { id: 1, key: 'assassin', name: 'ASSASSIN', hp: 85, shield: 50, speed: 6.7, dashes: 3, dashRecharge: Math.round(2.8 * TICK_RATE), dashGap: 16, weapon: WEAPON.RIFLE },
+    // sniper rifle + three dash charges that refill one at a time; 5 kills in a row charge the Obliteration Beam
+    { id: 1, key: 'assassin', name: 'ASSASSIN', hp: 85, shield: 50, speed: 6.7, dashes: 3, dashRecharge: Math.round(2.8 * TICK_RATE), dashGap: 16, weapon: WEAPON.SNIPER },
     // greatsword; every kill turns it into a shotgun until the shells run out
     { id: 2, key: 'knight', name: 'KNIGHT', hp: 130, shield: 50, speed: 6.0, dashes: 1, dashRecharge: DASH_COOLDOWN_TICKS, dashGap: 0, weapon: WEAPON.SWORD }
   ];
@@ -67,6 +67,22 @@
   const SHOTGUN_SPREAD = 0.065;        // radians
   const SHOTGUN_RANGE = 35;
   const TRANSFORM_TICKS = 24;          // sword -> shotgun transformation time (can't fire meanwhile)
+
+  // Assassin sniper rifle (bolt action)
+  const SNIPER_MAG = 5;
+  const SNIPER_TICKS = 66;             // 1.1 s bolt cycle
+  const SNIPER_RELOAD_TICKS = 126;     // 2.1 s
+  const SNIPER_RANGE = 140;
+  const SNIPER_HIP_SPREAD = 0.05;      // radians when not scoped (scoped = dead accurate)
+  // Obliteration Beam: earned with 5 kills in a row (without dying)
+  const ULT_STREAK = 5;
+  const ULT_CHARGE_TICKS = 96;         // 1.6 s build-up (rune circle) before the beam fires
+  const ULT_SLOW = 0.3;                // move speed while charging
+  const BEAM_RADIUS = 7;               // 14 m wide: half the width of the alley
+  const BEAM_LENGTH = 140;
+  const FIRE_ZONE_MS = 15000;          // the half of the alley the beam went into burns this long
+  const FIRE_DPS = 20;
+  const FIRE_HEIGHT = 1.5;             // standing above this (fire escapes, bridges) keeps you out of the flames
 
   // ---------------------------------------------------------------- map size
   // V4.6 "The Alley": a long back-alley between two run-down megablocks.
@@ -200,10 +216,11 @@
     return {
       x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, og: true, alive: true,
       cls: C.id, dashT: 0, dashCd: 0, dashN: C.dashes, dashGap: 0, ddx: 0, ddz: 0,
-      wpn: 0, ammo: C.weapon === WEAPON.RIFLE ? MAG_SIZE : 0, reload: 0, fireCd: 0
+      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0
     };
   }
-  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd'];
+  function magOf(weapon) { return weapon === WEAPON.RIFLE ? MAG_SIZE : weapon === WEAPON.SNIPER ? SNIPER_MAG : weapon === WEAPON.SHOTGUN ? SHOTGUN_SHELLS : 0; }
+  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT'];
   /** Which weapon is in this player's hands right now. */
   function weaponOf(p) { const C = classOf(p); return C.weapon === WEAPON.SWORD && p.wpn === 1 ? WEAPON.SHOTGUN : C.weapon; }
   /** Knight kill reward: the sword transforms into a loaded shotgun (a kill while holding it reloads it). */
@@ -274,7 +291,7 @@
    * Returns gameplay events produced this tick (used for effects/hit detection).
    */
   function stepPlayer(p, input) {
-    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false };
+    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false, ultStart: false, ultFire: false };
     const yaw = Number(input.yaw), pitch = Number(input.pitch);
     if (Number.isFinite(yaw)) p.yaw = ((yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     if (Number.isFinite(pitch)) p.pitch = clamp(pitch, -1.45, 1.45);
@@ -289,7 +306,7 @@
       if (p.dashCd > 0) p.dashCd--;
       if (p.dashCd === 0) { p.dashN++; if (p.dashN < C.dashes) p.dashCd = C.dashRecharge; }
     }
-    if (p.reload > 0) { p.reload--; if (p.reload === 0) { p.ammo = MAG_SIZE; ev.reloaded = true; } }
+    if (p.reload > 0) { p.reload--; if (p.reload === 0) { p.ammo = magOf(weapon); ev.reloaded = true; } }
 
     let mx = clamp(Number(input.mx) || 0, -1, 1), mz = clamp(Number(input.mz) || 0, -1, 1);
     const len = Math.hypot(mx, mz);
@@ -311,8 +328,9 @@
       if (p.dashT === 0) { p.vx *= 0.35; p.vz *= 0.35; }
     } else {
       const k = 1 - Math.exp(-(p.og ? GROUND_ACCEL : AIR_ACCEL) * DT);
-      p.vx += (wx * C.speed - p.vx) * k;
-      p.vz += (wz * C.speed - p.vz) * k;
+      const speed = C.speed * (p.ultT > 0 ? ULT_SLOW : 1);
+      p.vx += (wx * speed - p.vx) * k;
+      p.vz += (wz * speed - p.vz) * k;
     }
 
     const wasGrounded = p.og;
@@ -338,6 +356,18 @@
       if ((b & BTN.FIRE) && p.fireCd === 0 && p.reload === 0) {
         if (p.ammo > 0) { p.ammo--; p.fireCd = FIRE_TICKS; ev.fire = true; }
         else { p.reload = RELOAD_TICKS; p.fireCd = FIRE_TICKS; ev.dry = true; ev.reloadStart = true; }
+      }
+    } else if (weapon === WEAPON.SNIPER) {
+      if (p.ultT > 0) { // building up the Obliteration Beam: it fires on its own when the charge completes
+        p.ultT--;
+        if (p.ultT === 0) { p.ult = 0; p.fireCd = SNIPER_TICKS; ev.ultFire = true; }
+      } else {
+        if ((b & BTN.RELOAD) && p.reload === 0 && p.ammo < SNIPER_MAG) { p.reload = SNIPER_RELOAD_TICKS; ev.reloadStart = true; }
+        if ((b & BTN.FIRE) && p.fireCd === 0 && p.reload === 0) {
+          if (p.ult === 1) { p.ultT = ULT_CHARGE_TICKS; ev.ultStart = true; }
+          else if (p.ammo > 0) { p.ammo--; p.fireCd = SNIPER_TICKS; ev.fire = true; ev.sniper = true; ev.scoped = !!(b & BTN.ADS); }
+          else { p.reload = SNIPER_RELOAD_TICKS; p.fireCd = SNIPER_TICKS; ev.dry = true; ev.reloadStart = true; }
+        }
       }
     } else if (weapon === WEAPON.SWORD) {
       if ((b & BTN.FIRE) && p.fireCd === 0) {
@@ -433,12 +463,14 @@
    * Damage model.
    * rifle: headshots x2, legs x0.75, falloff past 25 m (to 65% at 70 m).
    * shotgun (per pellet): 13 body / 20 head / 10 legs, full up to 8 m, down to 25% at 25 m.
+   * sniper: 150 head (one-shot) / 80 body / 60 legs, no falloff.
    * sword: flat SWORD_DAMAGE.
    * shielded = the SHIELD ability is active (hardened: 30% damage).
    */
   function damageFor(part, dist, shielded, weapon = WEAPON.RIFLE) {
     let dmg;
     if (weapon === WEAPON.SWORD) dmg = SWORD_DAMAGE;
+    else if (weapon === WEAPON.SNIPER) dmg = part === 'head' ? 150 : part === 'legs' ? 60 : 80;
     else if (weapon === WEAPON.SHOTGUN) {
       dmg = part === 'head' ? 20 : part === 'legs' ? 10 : 13;
       dmg *= dist <= 8 ? 1 : Math.max(0.25, 1 - (dist - 8) / 17 * 0.75);
@@ -471,6 +503,36 @@
     return out;
   }
 
+  /** Sniper shot direction: dead accurate when scoped, a seeded random stray from the hip. */
+  function sniperDir(yaw, pitch, seed, scoped) {
+    const f = aimDirection(yaw, pitch);
+    if (scoped) return f;
+    let rx = -f.z, rz = f.x; const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
+    const ux = -rz * f.y, uy = rz * f.x - rx * f.z, uz = rx * f.y;
+    let s = ((seed | 0) * 2246822519 >>> 0) || 7;
+    const rnd = () => { s = (s * 1103515245 + 12345) >>> 0; return s / 4294967296; };
+    const r = SNIPER_HIP_SPREAD * Math.sqrt(rnd()), a = rnd() * Math.PI * 2, ox = Math.cos(a) * r, oy = Math.sin(a) * r;
+    const x = f.x + rx * ox + ux * oy, y = f.y + uy * oy, z = f.z + rz * ox + uz * oy, l = Math.hypot(x, y, z);
+    return { x: x / l, y: y / l, z: z / l };
+  }
+  /** Obliteration Beam: horizontal direction it fires in (it ignores pitch) */
+  function beamAxis(yaw) { return { x: -Math.sin(yaw), y: 0, z: -Math.cos(yaw) }; }
+  /** Is a player standing at pos caught in the beam fired from origin along the (horizontal) axis? */
+  function inBeam(origin, axis, pos) {
+    const dx = pos.x - origin.x, dz = pos.z - origin.z, t = dx * axis.x + dz * axis.z;
+    if (t < 0 || t > BEAM_LENGTH) return false;
+    return Math.hypot(dx - axis.x * t, dz - axis.z * t) < BEAM_RADIUS;
+  }
+  /** Which half of the alley the beam set on fire: the end it was fired towards. */
+  function fireZoneFor(origin, axis) {
+    if (Math.abs(axis.z) >= Math.abs(axis.x) * 0.5) return { axis: 'z', sign: axis.z >= 0 ? 1 : -1 };
+    return { axis: 'x', sign: axis.x >= 0 ? 1 : -1 };
+  }
+  function inFireZone(zone, pos) {
+    if (!zone || pos.y > FIRE_HEIGHT) return false;
+    return (zone.axis === 'z' ? pos.z : pos.x) * zone.sign > 0;
+  }
+
   /**
    * Sword hit test: is this target within reach and inside the swing's cone?
    * Returns { t: distance, part } or null. Walls are checked by the caller.
@@ -493,7 +555,9 @@
     DASH_TICKS, DASH_COOLDOWN_TICKS, MAG_SIZE, FIRE_TICKS, RELOAD_TICKS, MAX_RANGE, BTN,
     CLASSES, WEAPON, classOf, weaponOf, grantShotgun, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_PER_S,
     SWORD_TICKS, SWORD_RANGE, SWORD_DAMAGE, SHOTGUN_SHELLS, SHOTGUN_TICKS, SHOTGUN_PELLETS, SHOTGUN_RANGE, TRANSFORM_TICKS,
-    pelletDirs, swordReach,
+    pelletDirs, swordReach, magOf, sniperDir, beamAxis, inBeam, fireZoneFor, inFireZone,
+    SNIPER_MAG, SNIPER_TICKS, SNIPER_RELOAD_TICKS, SNIPER_RANGE, ULT_STREAK, ULT_CHARGE_TICKS, BEAM_RADIUS, BEAM_LENGTH,
+    FIRE_ZONE_MS, FIRE_DPS, FIRE_HEIGHT,
     HALF_X, HALF_Z, FACADE_HEIGHT, ALCOVE_DEPTH, CATWALK_TOP, boxes, spawns,
     newPlayerState, copyState, stepPlayer, isFree, aimDirection, eyeOf,
     rayBox, raycastWorld, rayPlayer, damageFor, clamp

@@ -1,5 +1,16 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.7 — Longwire & the Obliteration Beam
+- Assassin now carries the **Longwire sniper rifle**: 5-round bolt action (1.1 s between shots, 2.1 s reload),
+  150 headshot (one-shot kill) / 80 body / 60 legs, no damage falloff. Scope with right-click (or ADS on phones):
+  zoomed view with a scope overlay and lower sensitivity; dead accurate scoped, strays a little from the hip.
+- **5 kills in a row** (without dying) charge the **Obliteration Beam**: the next shot starts a 1.6 s build-up —
+  a blue rune circle grows in front of the rifle while you slow down — then a 14 m-wide beam tears down the alley,
+  through walls, killing everyone in its path. The half of the alley it went into **burns for 15 s**
+  (20 damage per second on the ground; fire escapes and bridges are safe; the shooter is immune).
+- HUD streak meter, "OBLITERATION READY" alert, kill feed "✦ OBLITERATED" / "🔥 burned". Other players see and hear
+  the charge-up coming. New sounds: sniper crack, bolt, charge-up, beam blast, beam ready.
+
 ## V4.6 — The Alley
 - New map: a long back-alley between two rotting megablocks — 32 m × 112 m (twice as long as the old arena).
   Burnt-out bus in the middle, wrecked cars, dumpsters, concrete barriers, crates, burning barrels,

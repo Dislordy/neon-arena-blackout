@@ -10,10 +10,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null }, time: { value: 0 }, damage: { value: 0 }, lowHp: { value: 0 },
-    aberration: { value: 0.0012 }, scan: { value: 0 }, dead: { value: 0 }, resolution: { value: new THREE.Vector2(1, 1) }
+    aberration: { value: 0.0012 }, scan: { value: 0 }, dead: { value: 0 }, flash: { value: 0 }, resolution: { value: new THREE.Vector2(1, 1) }
   },
   vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
-  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, damage, lowHp, aberration, scan, dead; uniform vec2 resolution; varying vec2 vUv;
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float time, damage, lowHp, aberration, scan, dead, flash; uniform vec2 resolution; varying vec2 vUv;
     float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
     void main(){
       vec2 uv = vUv;
@@ -62,6 +62,8 @@ const GradeShader = {
       float g = h(vUv * resolution + fract(time) * 100.0) - 0.5;
       col += g * 0.035 * (1.0 + damage);
       col *= 0.985 + 0.015 * sin(vUv.y * resolution.y * 1.5);
+      // white-out when an Obliteration Beam goes off
+      col = mix(col, vec3(1.0, 1.05, 1.2) * 1.3, clamp(flash, 0.0, 1.0));
       gl_FragColor = vec4(max(col, 0.0), 1.0);
     }`
 };

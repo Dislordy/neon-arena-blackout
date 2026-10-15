@@ -108,3 +108,54 @@ export function buildShotgun({ glow = emberMaterial(), lite = false } = {}) {
   G.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
   return { group: G, muzzle, ejectPort, pump, pumpHome: pump.position.clone(), lamps };
 }
+
+// ------------------------------------------------------------------ assassin
+/** Violet arc-glow used by the assassin's rifle (and its beam charge). */
+export const arcMaterial = (k = 2.2) => new THREE.MeshBasicMaterial({ color: new THREE.Color(0x7a8cff).multiplyScalar(k) });
+
+/**
+ * "Longwire" sniper rifle: long fluted barrel with a muzzle brake, bolt action, big scope, skeleton stock.
+ * Muzzle at -Z like the VX-9. Returns { group, muzzle, ejectPort, bolt, boltHome, mag, magHome, scopeY, lens }
+ */
+export function buildSniper({ glow = arcMaterial(), lite = false } = {}) {
+  const M = mats();
+  const G = new THREE.Group();
+  const add = (geo, mat, x = 0, y = 0, z = 0, parent = G) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = true; parent.add(m); return m; };
+  const cyl = (r0, r1, len, mat, x, y, z, seg = 16, parent = G) => { const g = new THREE.CylinderGeometry(r0, r1, len, seg); g.rotateX(Math.PI / 2); return add(g, mat, x, y, z, parent); };
+  // receiver + chassis
+  add(sideProfile([[0.14, 0.045], [0.14, -0.03], [0.06, -0.045], [-0.24, -0.045], [-0.26, -0.02], [-0.26, 0.04], [-0.2, 0.05], [0.1, 0.05]], 0.05), M.metal);
+  add(sideProfile([[-0.24, 0.0], [-0.24, -0.05], [-0.6, -0.045], [-0.62, -0.02], [-0.62, 0.01]], 0.058, { holes: lite ? [] : [0, 1, 2, 3, 4].map(k => [[-0.29 - k * 0.06, -0.012], [-0.32 - k * 0.06, -0.012], [-0.32 - k * 0.06, -0.034], [-0.29 - k * 0.06, -0.034]]) }), M.polymer);
+  // fluted barrel and muzzle brake
+  cyl(0.012, 0.014, 0.78, M.metal, 0, 0.012, -0.78, 12);
+  if (!lite) for (let i = 0; i < 6; i++) { const f = add(new THREE.BoxGeometry(0.004, 0.004, 0.5), glow, Math.cos(i) * 0.0135, 0.012 + Math.sin(i) * 0.0135, -0.72); f.castShadow = false; }
+  cyl(0.02, 0.02, 0.07, M.metal, 0, 0.012, -1.2, 10);
+  if (!lite) for (const z of [-1.18, -1.21]) add(new THREE.BoxGeometry(0.05, 0.008, 0.012), M.rubber, 0, 0.012, z);
+  const muzzle = new THREE.Object3D(); muzzle.position.set(0, 0.012, -1.24); G.add(muzzle);
+  // scope with glowing lens
+  const scopeY = 0.1;
+  cyl(0.024, 0.024, 0.32, M.metal, 0, scopeY, -0.08, 18);
+  cyl(0.034, 0.028, 0.08, M.metal, 0, scopeY, -0.27, 18);
+  cyl(0.03, 0.026, 0.06, M.metal, 0, scopeY, 0.1, 18);
+  for (const z of [-0.14, 0.02]) add(new THREE.BoxGeometry(0.022, 0.05, 0.03), M.metal, 0, scopeY - 0.035, z);
+  add(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 10), M.metal, 0, scopeY + 0.035, -0.06); // turret
+  const lens = new THREE.Mesh(new THREE.CircleGeometry(0.03, 20), glow); lens.position.set(0, scopeY, -0.311); lens.rotation.y = Math.PI; G.add(lens);
+  // bolt (animated) + magazine
+  const bolt = new THREE.Group(); bolt.position.set(0.03, 0.03, 0.06); G.add(bolt);
+  cyl(0.008, 0.008, 0.05, M.chrome, 0.02, 0, 0, 8, bolt).rotation.set(0, Math.PI / 2, 0);
+  add(new THREE.SphereGeometry(0.012, 10, 8), M.chrome, 0.045, -0.005, 0, bolt);
+  const mag = new THREE.Group(); mag.position.set(0, -0.05, -0.1); G.add(mag);
+  add(new THREE.BoxGeometry(0.03, 0.08, 0.07), M.polymer, 0, -0.04, 0, mag);
+  add(new THREE.BoxGeometry(0.032, 0.01, 0.072), glow, 0, -0.075, 0, mag).castShadow = false;
+  // grip, trigger guard, skeleton stock with cheek rest
+  add(sideProfile([[0.06, -0.04], [0.11, -0.04], [0.14, -0.15], [0.12, -0.165], [0.075, -0.16], [0.055, -0.08]], 0.032, { bevel: 0.006 }), M.polymer);
+  add(sideProfile([[0.14, 0.04], [0.42, 0.04], [0.44, 0.02], [0.44, -0.1], [0.41, -0.11], [0.36, -0.06], [0.14, -0.03]], 0.04,
+    { holes: [[[0.19, 0.012], [0.35, 0.012], [0.35, -0.04], [0.19, -0.015]]] }), M.polymer);
+  add(new THREE.BoxGeometry(0.044, 0.025, 0.14), M.rubber, 0, 0.058, 0.3); // cheek rest
+  add(new THREE.BoxGeometry(0.05, 0.13, 0.02), M.rubber, 0, -0.035, 0.45);
+  // folded bipod under the handguard
+  if (!lite) for (const s of [-1, 1]) { const leg = cyl(0.005, 0.005, 0.2, M.metal, s * 0.015, -0.055, -0.5, 6); leg.rotation.z = s * 0.1; }
+  add(new THREE.BoxGeometry(0.002, 0.012, 0.2), glow, 0.026, 0.0, -0.1).castShadow = false; // side arc strip
+  const ejectPort = new THREE.Object3D(); ejectPort.position.set(0.035, 0.03, 0.02); G.add(ejectPort);
+  G.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+  return { group: G, muzzle, ejectPort, bolt, boltHome: bolt.position.clone(), mag, magHome: mag.position.clone(), scopeY, lens };
+}

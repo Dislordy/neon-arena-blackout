@@ -281,6 +281,22 @@ button:hover{background:var(--yellow);color:#111;box-shadow:0 0 22px rgba(252,23
 .crosshair[data-mode=shotgun] b{width:4px;height:4px;left:-2px;top:-2px;background:#ffb27a;border-radius:50%}
 @media (pointer:coarse){ .shieldbar{width:110px;height:3px} .classCard{padding:7px} .classCard span{display:none} }
 
+/* sniper scope + kill-streak / Obliteration Beam meter */
+.scope{--r:min(40vh,40vw);position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(circle at 50% 50%,rgba(40,60,90,.08) 0,rgba(0,0,0,.25) calc(var(--r) - 18px),#000 calc(var(--r) + 1px))}
+.scope .sh,.scope .sv{position:absolute;left:50%;top:50%;background:rgba(0,0,0,.85)}
+.scope .sh{width:calc(var(--r) * 2);height:1px;transform:translate(-50%,-50%)}
+.scope .sv{height:calc(var(--r) * 2);width:1px;transform:translate(-50%,-50%)}
+.scope .sr{position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:#ff3b5c;box-shadow:0 0 8px #ff3b5c;transform:translate(-50%,-50%)}
+.ultbox{display:flex;align-items:center;gap:8px;margin-bottom:6px;font:700 10px Orbitron,sans-serif;letter-spacing:2px;color:#9fb4ff}
+.ultbox span{display:flex;gap:3px}
+.ultbox i{width:12px;height:6px;background:rgba(143,168,255,.18);transform:skewX(-20deg)}
+.ultbox i.on{background:#8fa8ff;box-shadow:0 0 8px #8fa8ff}
+.ultbox.ready{color:#fff;text-shadow:0 0 12px #8fa8ff;animation:ultpulse .7s infinite alternate}
+.ultbox.ready i{background:#cfd9ff;box-shadow:0 0 10px #8fa8ff}
+@keyframes ultpulse{from{opacity:.65}to{opacity:1}}
+@media (pointer:coarse){ .ultbox{justify-content:center;font-size:8px} }
+
 /* short landscape screens: let menus fit */
 @media (max-height:500px){
   .panel{padding:14px 18px;max-height:96vh}

@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
-import { buildSword, buildShotgun, emberMaterial } from './classgear.js';
+import { buildSword, buildShotgun, emberMaterial, buildSniper } from './classgear.js';
 
 let shared = null;
 function sharedAssets() {
@@ -284,6 +284,10 @@ export class Avatar {
       this.shotgun.visible = false;
       this.muzzle = sg.muzzle;
       this.setPose('sword');
+    } else if (assassin) {
+      const sn = buildSniper({ glow: this.glow, lite: true });
+      this.rifle = sn.group; this.rifle.position.set(0.08, -0.2, -0.28); this.armsG.add(this.rifle);
+      this.muzzle = sn.muzzle;
     } else {
       const rifle = buildRifle({ energy: this.glow, lite: true });
       this.rifle = rifle.group; this.rifle.position.set(0.08, -0.2, -0.3); this.armsG.add(this.rifle);
@@ -410,7 +414,9 @@ export class Avatar {
     this.shield.material.uniforms.time.value = this.time;
     // spawn protection shimmer
     const prot = st.protect ? 0.5 + 0.5 * Math.sin(this.time * 18) : 1;
-    this.glow.color.copy(this.color).multiplyScalar(3 * prot + (st.protect ? 1 : 0) + fl * 3);
+    // Obliteration Beam ready: the runner's lights throb; while charging they blaze
+    const ult = st.charging ? 4 + Math.random() * 2 : st.ultReady ? 1.2 + Math.sin(this.time * 6) * 1.0 : 0;
+    this.glow.color.copy(this.color).multiplyScalar(3 * prot + (st.protect ? 1 : 0) + fl * 3 + ult);
     if (this.ember) this.ember.color.setRGB(2.4, 0.86, 0.29).multiplyScalar(1 + Math.sin(this.time * 4) * 0.12 + (this.surge = Math.max(0, (this.surge || 0) - dt * 1.5)) * 2);
   }
   /** Ember flare when the sword transforms. */
