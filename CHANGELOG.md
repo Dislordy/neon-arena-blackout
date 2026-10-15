@@ -1,8 +1,8 @@
 # Changelog — Neon Arena: Blackout
 
 ## V4.10 — Rune-Warden: real creature animations
-- The Warden now moves with an imported, professionally animated creature skeleton ("Creep" rig, chosen by the
-  developer): a screaming roar when it transforms, breathing idle, a prowling crouch on all fours when it stands still,
+- The Warden now moves with an imported, professionally animated creature skeleton ("Creep" rig by **andriichykrii**,
+  see `CREDITS.md`): a screaming roar when it transforms, breathing idle, a prowling crouch on all fours when it stands still,
   a stalking walk, a four-legged scuttle at full speed, punches and a lunging bite, hit flinches, a leap pose in the air,
   a heavy landing and a collapsing death. The jaw opens when it roars and bites.
 - The body is still our own Rune-Warden (pale rune-carved skin, skirt, bandaged forearms, bone blade, horn fins,

@@ -27,7 +27,7 @@ The project has **two tracks** in one repository:
 | V4.9.1 | Rune-Warden animation pass: roar / chest-pound / ground-smash entrance, brute gait, stomps, landing slam, revert shrink |
 | V4.10 | Rune-Warden driven by imported creature animations (`models/warden.glb`, skeleton only) with our own body on the bones |
 
-Details: `CHANGELOG.md`.
+Details: `CHANGELOG.md`. Third-party assets and their authors: `CREDITS.md` (keep it up to date).
 
 ## About the developer and how to work with them
 - They are a **beginner** (with Unreal especially) and play/test on a **Chromebook** (Linux terminal, Chrome). Explain changes in plain language.
