@@ -9,6 +9,7 @@ function hp(buf, fc, sr) { const a = 1 - Math.exp(-TAU * fc / sr); let y = 0; fo
 function noise(n, seed = 1) { const b = new Float32Array(n); let s = seed * 9301 + 49297; for (let i = 0; i < n; i++) { s = (s * 16807) % 2147483647; b[i] = (s / 2147483647) * 2 - 1; } return b; }
 function normalize(b, peak = 0.9) { let m = 0; for (let i = 0; i < b.length; i++) m = Math.max(m, Math.abs(b[i])); if (m > 0) for (let i = 0; i < b.length; i++) b[i] *= peak / m; return b; }
 function softclip(b, drive = 1.5) { for (let i = 0; i < b.length; i++) b[i] = Math.tanh(b[i] * drive); return b; }
+function fadeOut(b, sr, ms = 3) { const n = Math.min(b.length >> 1, Math.round(sr * ms / 1000)); for (let i = 0; i < n; i++) b[b.length - 1 - i] *= i / n; return b; }
 function fadeEdges(b, sr, ms = 3) { const n = Math.min(b.length >> 1, Math.round(sr * ms / 1000)); for (let i = 0; i < n; i++) { const k = i / n; b[i] *= k; b[b.length - 1 - i] *= k; } return b; }
 function sweepSine(n, sr, f0, f1, decay, { k = 1, phase = 0, shape = 'sin' } = {}) {
   const b = new Float32Array(n); let ph = phase;
@@ -31,56 +32,62 @@ function env(b, sr, fn) { for (let i = 0; i < b.length; i++) b[i] *= fn(i / sr);
 // ------------------------------------------------------------------ sound designs
 const designs = {
   /**
-   * VX-9 plasma rifle, layered like a real gunshot recording + a sci-fi energy component.
-   * Stereo; v selects one of several variations so full-auto never sounds like a loop.
+   * VX-9 rifle, modelled on how a real rifle shot is built up (heard from the shooter's position):
+   *   N-wave crack -> muzzle blast (saturated, like a close mic) -> low "thump" from filtered noise (no tonal sweep)
+   *   -> bolt carrier back/forward clacks -> short air boom. A faint electrical crackle keeps it cyberpunk.
+   * The long city tail and building echoes are added live by the engine (geometric reflections + reverb).
    */
   shot(sr, v = 0) {
-    const n = Math.round(sr * 1.1), mono = new Float32Array(n), sv = 1 + (v - 1.5) * 0.03;
-    // 1 crack: very short broadband transient (the "snap")
-    mixInto(mono, env(hp(noise(n, 300 + v), 1800, sr), sr, t => Math.exp(-t * 420)), 1.1);
-    // 2 punch: pitched-down sub thump you feel in the chest
-    mixInto(mono, sweepSine(n, sr, 135 * sv, 46, 16, { k: 3.2 }), 1.5);
-    // 3 body: band-limited blast
-    mixInto(mono, env(lp(hp(noise(n, 310 + v), 220, sr), 1700, sr), sr, t => Math.exp(-t * 30) * Math.min(1, t * 800)), 0.9);
-    // 4 plasma zap: FM sweep gives the cyberpunk energy character
+    const n = Math.round(sr * 0.75), out = new Float32Array(n), sv = 1 + (v - 1.5) * 0.04;
+    // 1. N-wave: a sub-millisecond positive spike then a negative one (supersonic pressure wave)
+    const nw = Math.max(4, Math.round(sr * 0.00045));
+    for (let i = 0; i < nw * 2; i++) out[i] += (i < nw ? 1 : -1) * Math.sin(Math.PI * (i % nw) / nw) * 0.9;
+    // 2. muzzle blast: broadband burst with a very fast attack, then the body of the explosion
+    mixInto(out, env(lp(noise(n, 400 + v), 7000 * sv, sr), sr, t => Math.min(1, t * 3000) * Math.exp(-t * 95)), 1.25);
+    mixInto(out, env(lp(lp(noise(n, 410 + v), 900, sr), 1200, sr), sr, t => Math.min(1, t * 1500) * Math.exp(-t * 15)), 1.15);
+    // 3. low thump: twice low-passed noise around 60-120 Hz (sounds like air moving, not a synth "boing")
+    mixInto(out, env(lp(lp(lp(noise(n, 420 + v), 140, sr), 120, sr), 110, sr), sr, t => Math.min(1, t * 600) * Math.exp(-t * 13)), 9.5);
+    // the blast distorts like a real close recording
+    softclip(out, 2.8);
+    // 4. bolt carrier: back (~16 ms) and slamming forward (~46 ms), metal-on-metal
+    const clack = (at, hpf, f1, f2, g) => {
+      const o = Math.round(sr * at);
+      mixInto(out, env(hp(noise(Math.round(sr * 0.04), 430 + v + at * 1e3), hpf, sr), sr, t => Math.exp(-t * 320)), g, o);
+      mixInto(out, partials(Math.round(sr * 0.08), sr, [f1, f2], [90, 130], [0.5, 0.3]), g * 0.45, o);
+    };
+    clack(0.016 + v * 0.001, 2600, 2450 * sv, 3870 * sv, 0.16);
+    clack(0.046 + v * 0.002, 1400, 1480 * sv, 2630 * sv, 0.22);
+    // 5. electrical crackle from the plasma coils: sparse random sparks, high-passed, fading in ~60 ms
     {
-      const z = new Float32Array(Math.round(sr * 0.22)); let pc = 0, pm = 0;
-      for (let i = 0; i < z.length; i++) {
-        const t = i / sr, fc = (520 + 1900 * Math.exp(-t * 28)) * sv, I = 3.5 * Math.exp(-t * 18);
-        pc += TAU * fc / sr; pm += TAU * fc * 1.48 / sr;
-        z[i] = Math.sin(pc + I * Math.sin(pm)) * Math.exp(-t * 20) * Math.min(1, t * 2000);
-      }
-      mixInto(mono, z, 0.45);
+      const c = new Float32Array(Math.round(sr * 0.09)); let sd = 77 + v;
+      for (let i = 0; i < c.length; i++) { sd = (sd * 16807) % 2147483647; if (sd % 1000 < 45) c[i] = ((sd >> 3) % 2 ? 1 : -1) * Math.exp(-i / sr * 40); }
+      hp(c, 3000, sr); mixInto(out, c, 0.35, Math.round(sr * 0.002));
     }
-    // 5 metallic ring of the receiver/barrel
-    mixInto(mono, partials(Math.round(sr * 0.4), sr, [1830 * sv, 2970 * sv, 4410 * sv], [28, 36, 50], [0.22, 0.16, 0.09]));
-    // 6 mechanical bolt clack ~38 ms later
-    const clackAt = Math.round(sr * (0.036 + v * 0.002));
-    mixInto(mono, env(hp(noise(Math.round(sr * 0.05), 320 + v), 2500, sr), sr, t => Math.exp(-t * 260)), 0.35, clackAt);
-    mixInto(mono, partials(Math.round(sr * 0.06), sr, [3200, 5100], [120, 160], [0.18, 0.1]), 1, clackAt);
-    // stereo: decorrelated air/rumble tail + slap-back echoes off the surrounding buildings
-    const slap = lp(mono.slice(0, Math.round(sr * 0.25)), 2400, sr);
-    const side = (seed, d1, d2) => {
-      const c = mono.slice();
-      mixInto(c, env(lp(noise(n, seed), 650, sr), sr, t => Math.exp(-t * 3.2) * Math.min(1, t * 30)), 0.3);
-      mixInto(c, slap, 0.24, Math.round(sr * d1));
-      mixInto(c, slap, 0.12, Math.round(sr * d2));
-      return c;
-    };
-    const L = side(330 + v, 0.11, 0.29), R = side(340 + v, 0.14, 0.33);
-    softclip(L, 1.7); softclip(R, 1.7);
-    return stereoFinish(L, R, sr, 0.95);
+    // 6. short air boom right after the blast
+    const L = out.slice(), R = out.slice();
+    mixInto(L, env(lp(noise(n, 440 + v), 500, sr), sr, t => Math.min(1, t * 60) * Math.exp(-t * 7)), 0.5);
+    mixInto(R, env(lp(noise(n, 450 + v), 500, sr), sr, t => Math.min(1, t * 60) * Math.exp(-t * 7)), 0.5);
+    return stereoFinish(L, R, sr, 0.97);
   },
-  /** Distant gunfire: muffled, longer rumble, clear echoes rolling between buildings. */
+  /** Distant rifle: blast low-passed by the air, a "rolling thunder" tail from many late reflections. */
   shotFar(sr, v = 0) {
-    const near = designs.shot(sr, v), n = Math.round(sr * 1.8);
-    const one = (src, seed, e1, e2) => {
-      const c = new Float32Array(n), f = lp(lp(src.slice(), 1000, sr), 800, sr);
-      mixInto(c, f, 1); mixInto(c, f, 0.35, Math.round(sr * e1)); mixInto(c, f, 0.18, Math.round(sr * e2));
-      mixInto(c, env(lp(noise(n, seed), 300, sr), sr, t => Math.exp(-t * 2) * Math.min(1, t * 12)), 0.3);
+    const near = designs.shot(sr, v), n = Math.round(sr * 2.2);
+    const one = (src, seed) => {
+      const c = new Float32Array(n), f = lp(lp(src.slice(), 1300, sr), 1000, sr);
+      mixInto(c, f, 1);
+      let sd = seed;
+      for (let k = 0; k < 9; k++) { sd = (sd * 16807) % 2147483647; const d = 0.12 + (sd % 1000) / 1000 * 1.1; mixInto(c, lp(f.slice(0, Math.round(sr * 0.4)), 900 - d * 300, sr), 0.42 * Math.exp(-d * 1.6), Math.round(sr * d)); }
+      mixInto(c, env(lp(noise(n, seed + 3), 260, sr), sr, t => Math.exp(-t * 1.7) * Math.min(1, t * 10)), 0.35);
       return c;
     };
-    return stereoFinish(one(near.L, 360 + v, 0.24, 0.52), one(near.R, 370 + v, 0.27, 0.57), sr, 0.8);
+    return stereoFinish(one(near.L, 460 + v), one(near.R, 470 + v), sr, 0.8);
+  },
+  /** Supersonic bullet passing close by: a sharp N-wave "snap" (arrives before the gun's bang). */
+  crack(sr) {
+    const n = Math.round(sr * 0.06), out = new Float32Array(n), nw = Math.max(3, Math.round(sr * 0.0003));
+    for (let i = 0; i < nw * 2; i++) out[i] += (i < nw ? 1 : -1) * Math.sin(Math.PI * (i % nw) / nw);
+    mixInto(out, env(hp(noise(n, 480), 4000, sr), sr, t => Math.exp(-t * 180)), 0.5);
+    return fadeOut(normalize(out, 0.9), sr, 5);
   },
   dry(sr) {
     const n = Math.round(sr * 0.08), out = new Float32Array(n);
@@ -256,7 +263,7 @@ const designs = {
 function stereoFinish(L, R, sr, peak) {
   let m = 0; for (let i = 0; i < L.length; i++) m = Math.max(m, Math.abs(L[i]), Math.abs(R[i]));
   const k = m > 0 ? peak / m : 1; for (let i = 0; i < L.length; i++) { L[i] *= k; R[i] *= k; }
-  return { L: fadeEdges(L, sr), R: fadeEdges(R, sr) };
+  return { L: fadeOut(L, sr, 20), R: fadeOut(R, sr, 20) }; // no fade-in: keeps transients sharp
 }
 function loopable(b, sr) {
   // crossfade the tail into the head so the buffer loops seamlessly
@@ -292,14 +299,21 @@ export class AudioEngine {
     this.amb = gain(MIX.ambience); this.amb.connect(this.master);
     // UI bus (hit markers, kill confirms)
     this.ui = gain(MIX.ui); this.ui.connect(this.master);
-    // convolution reverb: early reflections off buildings + a diffuse wet-street tail
+    // convolution reverb modelled on an outdoor street canyon: dense early reflections, then a diffuse tail
+    // where highs die quickly and lows linger (that long low rumble is what makes city gunfire sound real)
     this.reverb = ctx.createConvolver();
-    const irLen = Math.round(sr * 1.6), ir = ctx.createBuffer(2, irLen, sr);
+    const irLen = Math.round(sr * 2.4), ir = ctx.createBuffer(2, irLen, sr);
     for (let c = 0; c < 2; c++) {
-      const d = ir.getChannelData(c), nz = noise(irLen, 60 + c);
-      for (let i = 0; i < irLen; i++) d[i] = nz[i] * Math.exp(-i / sr * 3.6) * 0.5 * (i < sr * 0.01 ? i / (sr * 0.01) : 1);
-      for (const [ms, a] of [[31 + c * 6, 0.9], [78 + c * 9, 0.6], [142 - c * 7, 0.45], [233 + c * 11, 0.3]]) { const k = Math.round(sr * ms / 1000); if (k < irLen) d[k] += a * (c ? -1 : 1); }
-      lp(d, 4200, sr);
+      const d = ir.getChannelData(c);
+      const lo = lp(lp(noise(irLen, 60 + c), 500, sr), 500, sr), hi = hp(noise(irLen, 62 + c), 500, sr);
+      for (let i = 0; i < irLen; i++) {
+        const t = i / sr, att = Math.min(1, t / 0.012);
+        d[i] = (lo[i] * 2.2 * Math.exp(-t * 2.1) + hi[i] * 0.6 * Math.exp(-t * 7.5)) * att;
+      }
+      for (const [ms, a] of [[23 + c * 5, 0.8], [41 + c * 7, 0.6], [67 - c * 4, 0.5], [104 + c * 9, 0.38], [151 - c * 6, 0.3], [212 + c * 13, 0.22]]) {
+        const k = Math.round(sr * ms / 1000); if (k < irLen) d[k] += a * (c ? -1 : 1);
+      }
+      lp(d, 6000, sr);
     }
     this.reverb.buffer = ir;
     this.reverbGain = gain(MIX.reverb); this.reverb.connect(this.reverbGain); this.reverbGain.connect(this.master);
@@ -309,6 +323,30 @@ export class AudioEngine {
       this.buffers[name] = this.toBuffer(fn(sr));
     }
     this.enabled = true;
+    this.loadSamples();
+  }
+  /**
+   * Optional real recordings: put CC0/royalty-free files in web/public/audio/ and list them in
+   * web/public/audio/manifest.json, e.g. { "shot": ["rifle1.ogg", "rifle2.ogg"], "shotFar": ["far1.ogg"] }.
+   * Listed recordings replace the synthesized versions; anything missing keeps the synth.
+   */
+  async loadSamples() {
+    try {
+      const r = await fetch('/audio/manifest.json', { cache: 'no-cache' });
+      if (!r.ok) return;
+      const man = await r.json();
+      for (const [name, files] of Object.entries(man)) {
+        const list = (Array.isArray(files) ? files : [files]).slice(0, 8);
+        const bufs = (await Promise.all(list.map(async f => {
+          try { const res = await fetch('/audio/' + encodeURIComponent(f)); return res.ok ? await this.ctx.decodeAudioData(await res.arrayBuffer()) : null; } catch { return null; }
+        }))).filter(Boolean);
+        if (!bufs.length) continue;
+        VARIANTS[name] = bufs.length;
+        bufs.forEach((b, i) => { this.buffers[name + i] = b; });
+        this.buffers[name] = bufs[0];
+        console.info(`[audio] using ${bufs.length} recording(s) for "${name}"`);
+      }
+    } catch { /* no manifest: synthesized sounds only */ }
   }
   toBuffer(data) {
     const stereo = data.L !== undefined, len = stereo ? data.L.length : data.length;
@@ -355,7 +393,7 @@ export class AudioEngine {
    * Play a sound. opts: { pos (world position => 3D), volume, rate, vary, reverb, ref, rolloff, bus: 'sfx'|'ui'|'amb' }
    */
   play(name, opts = {}) {
-    if (!this.enabled || this.voices > 56) return null;
+    if (!this.enabled || this.voices > 110) return null;
     const buf = this.buffers[name];
     if (!buf) return null;
     const ctx = this.ctx;
@@ -364,6 +402,13 @@ export class AudioEngine {
     src.playbackRate.value = (opts.rate || 1) * (1 + (Math.random() - 0.5) * (opts.vary !== undefined ? opts.vary : 0.06));
     const g = ctx.createGain(); g.gain.value = vol;
     let node = src;
+    // air absorption: high frequencies fade with distance (and reflections lose their sparkle)
+    const air = opts.air !== undefined ? opts.air : (opts.pos ? this.distanceTo(opts.pos) : 0);
+    if (air > 6 || opts.lowpass) {
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.4;
+      f.frequency.value = Math.min(opts.lowpass || 20000, Math.max(1200, 20000 / (1 + air / 9)));
+      node.connect(f); node = f;
+    }
     if (opts.pos) {
       if (this.occluded(opts.pos)) {
         const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 700; f.Q.value = 0.5;
@@ -379,21 +424,58 @@ export class AudioEngine {
     node.connect(g); g.connect(bus);
     const rv = opts.reverb !== undefined ? opts.reverb : 0.3;
     if (rv > 0) { const s = ctx.createGain(); s.gain.value = rv; g.connect(s); s.connect(this.reverb); }
-    src.start();
+    src.start(ctx.currentTime + Math.max(0, opts.delay || 0));
     this.voices++;
     src.onended = () => { this.voices--; g.disconnect(); };
     return src;
   }
   pick(name) { return name + ((Math.random() * VARIANTS[name]) | 0); }
 
-  /** Gunfire: your own rifle up front; others positioned, with a muffled/echoing variant at range. */
-  gunshot(pos, own = false) {
-    if (own) { this.duck(0.3, 0.18); return this.play(this.pick('shot'), { volume: 0.95, reverb: 0.26, vary: 0.03 }); }
-    const d = this.distanceTo(pos);
-    if (d > 24) { this.duck(0.75, 0.1); return this.play(this.pick('shotFar'), { pos, volume: 1.7, reverb: 0.55, ref: 6, rolloff: 0.9, vary: 0.04 }); }
-    this.duck(0.5, 0.14);
-    return this.play(this.pick('shot'), { pos, volume: 1.25, reverb: 0.42, ref: 4, vary: 0.04 });
+  /**
+   * Echoes off the real map geometry: cast rays from the source, and for each wall hit play the shot again
+   * from that wall, delayed by the extra distance the sound travels (speed of sound 343 m/s), quieter and duller.
+   */
+  reflections(name, src, volume) {
+    const L = this.listenerPos; if (!L || this.voices > 70) return;
+    const S = { x: src.x, y: Math.max(1.2, src.y), z: src.z }, direct = Math.max(1, this.distanceTo(S));
+    const hits = [];
+    for (let k = 0; k < 10; k++) {
+      const a = k / 10 * Math.PI * 2 + 0.31, d = { x: Math.cos(a), y: 0.05, z: Math.sin(a) };
+      const h = Sim.raycastWorld(S, d, 45);
+      if (!h || h.kind === 'floor' || h.t < 1.5) continue;
+      const P = { x: S.x + d.x * (h.t - 0.3), y: S.y + d.y * h.t, z: S.z + d.z * (h.t - 0.3) };
+      const back = Math.hypot(P.x - L.x, P.y - L.y, P.z - L.z), path = h.t + back;
+      if (path - direct < 2) continue;
+      hits.push({ P, path, gain: volume * 0.6 * Math.min(1, Math.max(direct, 6) / path) });
+    }
+    hits.sort((p, q) => q.gain - p.gain);
+    for (const r of hits.slice(0, 4)) {
+      this.play(name, { pos: r.P, volume: r.gain, delay: r.path / 343, reverb: 0, air: r.path, lowpass: 4500, vary: 0.05, ref: 3, rolloff: 0.6 });
+    }
   }
+
+  /** Gunfire: your own rifle up front; others delayed by the speed of sound, muffled by distance, echoing off buildings. */
+  gunshot(pos, own = false) {
+    if (own) {
+      this.duck(0.3, 0.18);
+      const name = this.pick('shot');
+      if (this.listenerPos) this.reflections(name, this.listenerPos, 0.8);
+      return this.play(name, { volume: 0.95, reverb: 0.4, vary: 0.03 });
+    }
+    const d = this.distanceTo(pos), delay = d / 343;
+    if (d > 24) {
+      setTimeout(() => this.duck(0.75, 0.1), delay * 1000);
+      const name = this.pick('shotFar');
+      this.reflections(name, pos, 1.2);
+      return this.play(name, { pos, volume: 1.7, reverb: 0.6, ref: 6, rolloff: 0.9, vary: 0.04, delay });
+    }
+    setTimeout(() => this.duck(0.5, 0.14), delay * 1000);
+    const name = this.pick('shot');
+    this.reflections(name, pos, 1.0);
+    return this.play(name, { pos, volume: 1.25, reverb: 0.5, ref: 4, vary: 0.04, delay });
+  }
+  /** A bullet passing close to your head: the supersonic snap arrives before the shooter's bang. */
+  bulletCrack(pos) { return this.play('crack', { pos, volume: 1.1, reverb: 0.15, ref: 1.5, vary: 0.1, air: 0 }); }
   /** Footsteps: yours are close and clear; other runners' steps carry an armour clink so you can track them. */
   footstep(pos, own = false) {
     if (own) return this.play(this.pick('step'), { volume: 0.6, reverb: 0.05, vary: 0.1 });

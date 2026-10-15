@@ -274,7 +274,7 @@ socket.on('shot', shot => {
     const o = new THREE.Vector3(...shot.o), d = end.clone().sub(o), len = d.length(); d.normalize();
     const t = THREE.MathUtils.clamp(eye.clone().sub(o).dot(d), 0, len);
     const closest = o.clone().addScaledVector(d, t);
-    if (closest.distanceTo(eye) < 1.6) audio.play('dash', { pos: closest, volume: 0.35, rate: 2.2 });
+    if (closest.distanceTo(eye) < 1.6) audio.bulletCrack(closest);
   }
 });
 const impactSound = k => (k === 'floor' ? 'impactWater' : k === 'perimeter' ? 'impactConcrete' : 'impactMetal');

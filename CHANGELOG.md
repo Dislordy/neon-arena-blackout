@@ -1,5 +1,15 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.2 — Realistic gunfire
+- VX-9 shot rebuilt the way a real rifle sounds: supersonic N-wave crack, saturated muzzle blast, low thump from
+  filtered noise (no synth "boing"), bolt carrier back/forward clacks, short air boom; faint electrical crackle.
+- Echoes off the real map: each shot casts rays and replays from the buildings it hits, delayed by the extra
+  travel distance at the speed of sound (343 m/s), quieter and duller.
+- Speed of sound and air absorption: remote shots arrive after the muzzle flash and lose highs with distance.
+- Near misses: a supersonic bullet "crack" that arrives before the shooter's bang.
+- Street-canyon reverb: dense early reflections, long low rumble, fast-decaying highs.
+- Real recordings supported: drop CC0 files in `web/public/audio/` and list them in `manifest.json`.
+
 ## V4.1 — Audio remix
 - Mixer rebuilt into separate channels: action (guns, movement, impacts) with its own glue compressor,
   ambience (rain, city hum, neon buzz) that ducks under every gunshot, UI (hit markers), and a master limiter.
