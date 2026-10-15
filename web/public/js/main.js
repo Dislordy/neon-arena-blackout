@@ -400,6 +400,14 @@ function monsterBurst(id) {
   else audio.play('monRoar', { pos: pos.clone().setY(pos.y + 2), volume: 1.8, ref: 10, rolloff: 0.6, reverb: 0.6 });
 }
 socket.on('monStart', m => monsterBurst(m.id));
+/** The Warden's heavy footfalls, landings and fist smashes: a thud, a dust ring, and the ground shakes nearby. */
+function wardenStomp(pos, str) {
+  if (str >= 0.5) fx.ring(pos, 0xff3a2a, 1.2 + str * 2.2, 0.35 + str * 0.2);
+  if (str >= 0.5) fx.stomp(pos, str); else fx.footSplash(pos);
+  audio.play('land', { pos, volume: 0.4 + str * 0.6, rate: 0.55, ref: 4 });
+  const d = Math.hypot(pos.x - local.sim.x, pos.z - local.sim.z);
+  if (str >= 0.8 && d < 14) damage.shake = Math.min(1, damage.shake + str * 0.5 * (1 - d / 14));
+}
 socket.on('monEnd', m => {
   if (m.id === myId) { audio.play('monEnd', { volume: 0.7, reverb: 0.3 }); hud.notice('THE RUNES GO DARK', 1300); return; }
   const st = remotes.get(m.id)?.state;
@@ -669,6 +677,7 @@ function syncAvatars(players) {
     if (old) { scene.remove(old.group); old.dispose(); avatars.delete(p.id); } // class changed on respawn
     const a = new Avatar(p.color, p.name, p.cls | 0);
     a.onDissolve = (pos, color) => { fx.embers(pos, color); audio.play('respawn', { pos, volume: 0.5, rate: 0.55 }); };
+    a.onStomp = wardenStomp;
     a.group.visible = false;
     scene.add(a.group); avatars.set(p.id, a);
   }

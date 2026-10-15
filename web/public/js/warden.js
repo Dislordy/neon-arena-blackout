@@ -31,7 +31,7 @@ function assets() {
   return shared;
 }
 
-/** Returns { group, hips, legs: [{hip, knee}], torso, head, halo, haloSpin, armL, armR, elbowL, elbowR, runeMat, glow } */
+/** Returns { group, hips, legs: [{hip, knee}], torso, head, halo, haloSpin, armL/armR: {sh, el, hand}, blade, skirt, sash, runeMat, glow } */
 export function buildWarden(runeColor = 0xff2a3a) {
   const S = assets();
   const runeMat = new THREE.MeshStandardMaterial({
@@ -51,9 +51,11 @@ export function buildWarden(runeColor = 0xff2a3a) {
   // ---- hips, skirt, legs
   const hips = new THREE.Group(); hips.position.y = 0.95; g.add(hips);
   add(hips, rbox(0.4, 0.18, 0.26, 0.06), runeMat);
-  add(hips, cyl(0.24, 0.42, 0.62, 18, true), S.cloth, 0, -0.27, 0);                           // torn dark skirt
+  const skirt = new THREE.Group(); hips.add(skirt);                                             // pivots at the belt so it can sway
+  add(skirt, cyl(0.24, 0.42, 0.62, 18, true), S.cloth, 0, -0.27, 0);                           // torn dark skirt
   add(hips, new THREE.TorusGeometry(0.235, 0.025, 6, 20), S.wrap, 0, 0.03, 0, Math.PI / 2);   // rope belt
-  add(hips, new THREE.PlaneGeometry(0.16, 0.5), S.wrap, 0.12, -0.24, -0.24, 0.1, 0, 0.05);    // hanging sash
+  const sash = new THREE.Group(); sash.position.set(0.12, 0.01, -0.24); hips.add(sash);
+  add(sash, new THREE.PlaneGeometry(0.16, 0.5), S.wrap, 0, -0.25, 0, 0.1, 0, 0.05);           // hanging sash
   const legs = [];
   for (const side of [-1, 1]) {
     const hip = new THREE.Group(); hip.position.set(side * 0.13, -0.05, 0); hips.add(hip);
@@ -122,7 +124,7 @@ export function buildWarden(runeColor = 0xff2a3a) {
   armL.sh.rotation.set(0.15, 0, 0.18); armR.sh.rotation.set(0.15, 0, -0.18);
 
   g.traverse(o => { if (o.isMesh) o.receiveShadow = true; });
-  return { group: g, hips, legs, torso, head, halo, haloSpin, armL, armR, blade, runeMat, glow };
+  return { group: g, hips, legs, torso, head, halo, haloSpin, armL, armR, blade, skirt, sash, runeMat, glow };
 }
 
 /** The rune texture (white-on-black glyphs), for the glowing shell that crawls over the Soldier while transforming. */

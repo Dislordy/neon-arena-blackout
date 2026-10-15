@@ -1,5 +1,16 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.9.1 — Rune-Warden animation pass (more monster)
+- The transformation: the Soldier doubles over and convulses while the runes spread; the Warden then grows out
+  with a bounce, roars with its arms flung wide (halo spinning in), pounds its chest and smashes both fists into the street.
+- Brute body language: long heavy arms, a gorilla hunch with the head thrust forward, lumbering stomps that shake the
+  ground and kick up dust, heaving breath, a snarling look-around and clenching fists when idle, a chest-pound now and then.
+- Arms flare when it jumps; it lands in a heavy crouch with a dust blast. It flinches when hit, shudders and flares its
+  runes when it adapts, and every third attack is an overhead double-fist slam. When the 20 s end it shrinks back into
+  the Soldier with a last flash of runes.
+- First person: your monster arms surge up, spread and hammer down when you transform, heave and flex while idle,
+  swing as you walk, rise when airborne, and do the double-fist slam too.
+
 ## V4.9 — The Rune-Warden
 - **3 kills in a row as the Soldier** (without dying) wakes the runes: crimson glyphs crawl over your body for 1.5 s
   (you slow down, everyone sees and hears it, kill feed "… is turning into something"), then you become the

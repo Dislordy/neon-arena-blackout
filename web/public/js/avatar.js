@@ -302,7 +302,9 @@ export class Avatar {
       const rt = runeTexture().clone(); rt.needsUpdate = true; rt.repeat.set(2, 2);
       this.runeShellMat = new THREE.MeshBasicMaterial({ map: rt, color: new THREE.Color(0xff2a3a).multiplyScalar(2.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
       this.runeShell = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1.0, 6, 16), this.runeShellMat); this.runeShell.position.y = 1.0; this.runeShell.visible = false; g.add(this.runeShell);
-      this.clawT = -1; this.clawSide = 1; this.haloAngle = 0; this.haloTarget = 0; this.monK = 0;
+      this.clawT = -1; this.clawSide = 1; this.haloAngle = 0; this.haloTarget = 0; this.riseAge = 0; this.revertT = -1; this.landT = 9; this.beatT = -1; this.nextBeat = 7;
+      for (const A of [this.warden.armL, this.warden.armR]) A.sh.scale.set(1.2, 1.12, 1.2); // long, heavy brute arms
+      this.onStomp = null; // set by the game: dust ring + thud when the Warden stomps, lands or smashes
     }
     this.gunMode = !knight; this.swingT = -1; this.swingSide = 1;
 
@@ -333,9 +335,9 @@ export class Avatar {
     this.setPose(on ? 'gun' : 'sword');
   }
   /** Greatsword swing / Rune-Warden claw slash (third person). */
-  swing() { if (this.mon) { this.clawT = 0; this.clawSide = -this.clawSide; return; } this.swingT = 0; this.swingSide = -this.swingSide; }
+  swing() { if (this.mon) { this.clawT = 0; this.clawSide = -this.clawSide; this.clawN = (this.clawN || 0) + 1; this.clawSlam = this.clawN % 3 === 0; this.slamHit = false; return; } this.swingT = 0; this.swingSide = -this.swingSide; }
   /** The Warden adapted to a weapon: its halo clicks round a sixth of a turn. */
-  adapt() { if (this.warden) this.haloTarget += Math.PI / 3; }
+  adapt() { if (this.warden) { this.haloTarget += Math.PI / 3; this.adaptT = 0; } }
 
   /** Small hit reaction; dir is the shot direction in world space (optional). */
   flinch(dir) {
@@ -373,6 +375,7 @@ export class Avatar {
     }
     if (!this.wasAlive) { // respawned: reset the pose
       this.wasAlive = true; this.body.rotation.set(0, 0, 0); this.body.position.set(0, 0, 0); this.deathT = -1;
+      if (this.warden) { this.mon = false; this.revertT = -1; } // died as the Warden: come back as the soldier, no shrink
     }
     g.visible = true;
     g.rotation.y = st.yaw;
@@ -432,47 +435,146 @@ export class Avatar {
     this.glow.color.copy(this.color).multiplyScalar(3 * prot + (st.protect ? 1 : 0) + fl * 3 + ult);
     if (this.ember) this.ember.color.setRGB(2.4, 0.86, 0.29).multiplyScalar(1 + Math.sin(this.time * 4) * 0.12 + (this.surge = Math.max(0, (this.surge || 0) - dt * 1.5)) * 2);
   }
-  /** Rune-Warden: runes crawl over the soldier while transforming, then the monster takes over. */
+  /**
+   * Rune-Warden: runes crawl over the soldier (he hunches and convulses), then a hulking brute bursts out —
+   * grows in with a bounce, roars with its arms flung wide, beats its chest and smashes both fists into the
+   * ground. Knuckle-heavy gorilla stance, lumbering stomps, heaving breath, a crouched slam on landing, and it
+   * shrinks back into the soldier when the runes go dark.
+   */
   updateWarden(dt, st, p, k, fwd, side) {
     const W = this.warden, mon = !!st.mon, rising = !!st.monT;
+    const seg = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a))), sm = x => x * x * (3 - 2 * x);
+    if (mon && !this.mon) { this.monAge = 0; this.revertT = -1; this.landT = 9; this.beatT = -1; this.nextBeat = 7; }
+    if (!mon && this.mon) this.revertT = 0;
     this.mon = mon;
-    // rune shell: brightens while rising, flashes out at the moment of transformation
-    const target = rising ? 1 : 0;
-    this.runeShellMat.opacity += (target * (0.55 + Math.sin(this.time * 20) * 0.15) - this.runeShellMat.opacity) * Math.min(1, dt * 6);
+    this.riseAge = rising ? this.riseAge + dt : 0;
+    const ra = Math.min(1, this.riseAge / (window.NeonSim.MON_RISE_TICKS * window.NeonSim.DT));
+    // rune shell: brightens and swells while rising
+    this.runeShellMat.opacity += ((rising ? 0.55 + Math.sin(this.time * 20) * 0.15 + ra * 0.3 : 0) - this.runeShellMat.opacity) * Math.min(1, dt * 6);
     this.runeShell.visible = this.runeShellMat.opacity > 0.02;
-    this.runeShellMat.map.offset.y -= dt * 0.6;
-    this.runeShell.scale.setScalar(1 + (rising ? Math.sin(this.time * 30) * 0.03 : 0));
-    if (rising) { this.frame.position.x = (Math.random() - 0.5) * 0.03; } else this.frame.position.x = 0;
-    this.frame.visible = !mon; W.group.visible = mon;
-    this.tag.position.y = mon ? 3.0 : 2.15;
-    this.shield.scale.set(0.75 * (mon ? MON_SCALE : 1), 1.1 * (mon ? MON_SCALE : 1), 0.75 * (mon ? MON_SCALE : 1)); this.shield.position.y = 0.95 * (mon ? MON_SCALE : 1);
-    if (!mon) return;
-    // heavy, hunched gait
-    for (let i = 0; i < 2; i++) {
-      const L = W.legs[i], ph = p * 0.8 + i * Math.PI;
-      L.hip.rotation.x = Math.sin(ph) * 0.55 * k + this.airBlend * (i ? 0.8 : 0.4);
-      L.knee.rotation.x = -(Math.max(0, Math.sin(ph + 1.3)) * 0.8 * k + this.airBlend * (i ? 1.0 : 0.5));
+    this.runeShellMat.map.offset.y -= dt * (0.6 + ra * 1.2);
+    const jit = rising ? Math.sin(this.time * 30) * 0.03 : 0;
+    this.runeShell.scale.set(1 + ra * 0.3 + jit, 1 + ra * 0.12 + jit, 1 + ra * 0.3 + jit);
+    if (rising) { // the soldier doubles over and convulses as something pushes out from inside
+      const twitch = Math.pow(Math.max(0, Math.sin(this.time * 7.3) * Math.sin(this.time * 3.1)), 4);
+      this.torso.rotation.x += 0.55 * ra + twitch * 0.3; this.torso.rotation.z += Math.sin(this.time * 23) * 0.05 * ra;
+      this.head.rotation.x += 0.3 * ra - twitch * 0.8;
+      this.armsG.rotation.x += 0.6 * ra; this.hips.position.y -= 0.14 * ra;
+      for (const L of this.legs) { L.hip.rotation.x += 0.35 * ra; L.knee.rotation.x -= 0.6 * ra; }
+      this.frame.position.x = (Math.random() - 0.5) * 0.03 * (1 + ra * 2.5);
+    } else this.frame.position.x = 0;
+    let shrink = 0;
+    if (this.revertT >= 0) {
+      this.revertT += dt; shrink = sm(Math.min(1, this.revertT / 0.55));
+      if (this.revertT >= 0.55) { this.revertT = -1; this.runeShellMat.opacity = 0.95; } // last flash of runes on the soldier
     }
-    W.hips.position.y = 0.95 - Math.abs(Math.cos(p * 0.8)) * 0.05 * k;
-    W.torso.rotation.x = 0.18 + st.pitch * 0.3 + Math.sin(this.time * 1.6) * 0.02;
-    W.torso.rotation.y = -Math.sin(p * 0.8) * 0.12 * k;
-    W.head.rotation.x = st.pitch * 0.4 - 0.1;
-    let lx = 0.15 - Math.sin(p * 0.8) * 0.4 * k, rx = 0.15 + Math.sin(p * 0.8) * 0.4 * k, lz = 0.18, rz = -0.18, le = -0.3, re = -0.3;
-    if (this.clawT >= 0) { // wind up, rake across, recover
+    const showW = mon || this.revertT >= 0;
+    this.frame.visible = !showW; W.group.visible = showW;
+    this.tag.position.y = showW ? 3.0 : 2.15;
+    this.shield.scale.set(0.75 * (showW ? MON_SCALE : 1), 1.1 * (showW ? MON_SCALE : 1), 0.75 * (showW ? MON_SCALE : 1)); this.shield.position.y = 0.95 * (showW ? MON_SCALE : 1);
+    if (!showW) return;
+
+    const age = mon ? (this.monAge += dt) : 99, air = this.airBlend, fl = this.flinchT * this.flinchT;
+    const stomp = (str) => { if (this.onStomp) this.onStomp(new THREE.Vector3(st.x, st.y, st.z), str); };
+    // ---- emergence: grow (with overshoot), roar arms-wide, two chest beats, then a double-fist ground smash
+    const g0 = Math.min(1, age / 0.45), back = 1 + 2.2 * Math.pow(g0 - 1, 3) + 1.2 * Math.pow(g0 - 1, 2);
+    W.group.scale.setScalar(MON_SCALE * (0.7 + 0.3 * back) * (1 - 0.32 * shrink));
+    const roar = sm(seg(age, 0.12, 0.35)) * (1 - sm(seg(age, 0.95, 1.15)));
+    const beat = seg(age, 1.05, 1.65) > 0 && age < 1.65 ? Math.abs(Math.sin(seg(age, 1.05, 1.65) * Math.PI * 2)) : 0;
+    const beatOn = age >= 1.05 && age < 1.65 ? 1 : 0;
+    const smashUp = sm(seg(age, 1.65, 1.95)) * (1 - sm(seg(age, 1.95, 2.05))), smash = sm(seg(age, 1.95, 2.05)) * (1 - sm(seg(age, 2.3, 2.8)));
+    if (age >= 2.02 && !this.smashed) { this.smashed = true; stomp(1.6); }
+    if (age < 0.1) this.smashed = false;
+    // ---- idle chest-pound every so often while standing still
+    if (mon && age > 3 && k < 0.15 && this.clawT < 0 && air < 0.1) {
+      this.nextBeat -= dt;
+      if (this.nextBeat <= 0 && this.beatT < 0) { this.beatT = 0; this.nextBeat = 6 + Math.random() * 5; }
+    }
+    let idleBeat = 0;
+    if (this.beatT >= 0) { this.beatT += dt; idleBeat = Math.abs(Math.sin(Math.min(1, this.beatT / 0.9) * Math.PI * 3)) * (1 - seg(this.beatT, 0.8, 0.9)); if (this.beatT > 0.9 || k > 0.3) this.beatT = -1; }
+    const pound = Math.max(beat * beatOn, idleBeat), pounding = beatOn || this.beatT >= 0 ? 1 : 0;
+    // ---- landing: heavy crouch, fists to the ground
+    if (st.og && !this.wasOg && this.airTime > 0.25 && mon) { this.landT = 0; stomp(Math.min(1.4, 0.6 + this.airTime)); }
+    this.airTime = st.og ? 0 : (this.airTime || 0) + dt; this.wasOg = st.og;
+    this.landT += dt;
+    const land = this.landT < 0.55 ? Math.sin(Math.min(1, this.landT / 0.12) * Math.PI / 2) * (1 - sm(seg(this.landT, 0.15, 0.55))) : 0;
+    // ---- heavy footfalls
+    const ph = p * 0.7;
+    if (mon && k > 0.35 && st.og) { const f = Math.floor(ph / Math.PI); if (f !== this.lastStep) { this.lastStep = f; stomp(0.35 * k); } }
+    const breath = Math.sin(this.time * (1.6 + k * 1.5)), heave = (1 - k) * (1 - roar);
+
+    // legs: wide, bow-legged, lumbering
+    const crouch = land * 1.0 + smash * 0.7 + shrink * 0.4 + (0.12 - roar * 0.12);
+    for (let i = 0; i < 2; i++) {
+      const L = W.legs[i], q = ph + i * Math.PI, s2 = i ? 1 : -1;
+      L.hip.rotation.x = Math.sin(q) * 0.6 * k + air * (i ? 0.9 : 0.4) + crouch * 0.55;
+      L.hip.rotation.z = s2 * (0.12 + roar * 0.14 + land * 0.12);
+      L.knee.rotation.x = -(Math.max(0, Math.sin(q + 1.3)) * 0.85 * k + air * (i ? 1.1 : 0.5) + crouch * 1.0);
+    }
+    W.hips.position.y = 0.95 - Math.abs(Math.cos(ph)) * 0.08 * k - crouch * 0.2;
+    W.hips.rotation.z = Math.sin(ph) * 0.06 * k; W.hips.rotation.y = Math.sin(ph) * 0.12 * k;
+    // torso: gorilla hunch, shoulders rolling with each stomp, chest heaving
+    W.torso.scale.set(1 + breath * 0.02 * (0.6 + heave), 1 + breath * 0.012, 1 + breath * 0.035 * (0.6 + heave));
+    W.torso.rotation.x = 0.32 + k * 0.16 + st.pitch * 0.3 + breath * 0.03 - roar * 0.75 + pound * 0.08 - pounding * 0.15
+      + land * 0.45 + smashUp * -0.3 + smash * 0.6 + shrink * 0.7 - fl * 0.3 + air * 0.12;
+    W.torso.rotation.y = -Math.sin(ph) * 0.16 * k;
+    W.torso.rotation.z = Math.sin(ph) * 0.09 * k + fl * 0.15 * this.flinchSide;
+    W.torso.position.y = 0.06 + (heave * breath * 0.012);
+    // head: thrust forward and low, snarling look-around when idle, thrown back to roar
+    const look = heave * (1 - pounding);
+    W.head.rotation.x = st.pitch * 0.4 - 0.32 - k * 0.1 - roar * 0.7 - pounding * 0.35 + fl * 0.35 + smash * 0.2;
+    W.head.rotation.y = Math.sin(this.time * 0.41) * 0.45 * look + Math.sin(this.time * 1.7) * 0.06 * look + (roar ? Math.sin(this.time * 31) * 0.05 * roar : 0);
+    W.head.rotation.z = Math.sin(this.time * 0.6) * 0.1 * look;
+    // arms: long, hanging forward and wide, swinging heavily
+    const sw = Math.sin(ph) * 0.5 * k, hang = 0.28 + heave * breath * 0.04;
+    let lx = hang - sw, rx = hang + sw, lz = 0.05 - heave * breath * 0.05, rz = -0.05 + heave * breath * 0.05, le = -0.45 - k * 0.3, re = -0.45 - k * 0.3;
+    lz -= air * 0.8 + roar * 1.35 + land * 0.5 + fl * 0.3; rz += air * 0.8 + roar * 1.35 + land * 0.5 + fl * 0.3; // (+z on the left arm = inwards)
+    lx += air * 0.4 - roar * 0.45 + land * 0.75 + shrink * 0.2; rx += air * 0.4 - roar * 0.45 + land * 0.75 + shrink * 0.2;
+    le -= roar * 1.0 + land * 0.2; re -= roar * 1.0 + land * 0.2;
+    if (pounding) { // fists hammering the chest, alternating
+      const pl = Math.max(0, Math.sin(this.time * 18)), pr = Math.max(0, -Math.sin(this.time * 18));
+      lx = 1.1 + pl * 0.35; rx = 1.1 + pr * 0.35; lz = 0.5 - pl * 0.4; rz = -0.5 + pr * 0.4; le = -1.9 + pl * 0.3; re = -1.9 + pr * 0.3;
+    }
+    if (smashUp + smash > 0) { // both fists overhead... and down into the street
+      const m = smashUp, d = smash;
+      lx = 0.3 + m * 2.6 - d * 0.8; rx = lx; lz = 0.25 + m * 0.1; rz = -lz; le = -0.4 - m * 0.6 + d * 0.3; re = le;
+    }
+    if (this.clawT >= 0) { // wind up, rake across (or, every third swing, an overhead double-fist slam)
       this.clawT += dt / 0.5;
       const t = Math.min(1, this.clawT), up = Math.sin(Math.min(1, t / 0.3) * Math.PI / 2) * (1 - Math.min(1, Math.max(0, (t - 0.3) / 0.15)));
       const cut = Math.min(1, Math.max(0, (t - 0.28) / 0.14)) * (1 - Math.min(1, Math.max(0, (t - 0.55) / 0.45)));
-      if (this.clawSide > 0) { rx = 0.15 + up * 2.0 - cut * 0.9; rz = -0.18 - up * 0.5 + cut * 0.9; re = -0.3 - up * 0.6; }
-      else { lx = 0.15 + up * 2.0 - cut * 0.9; lz = 0.18 + up * 0.5 - cut * 0.9; le = -0.3 - up * 0.6; }
-      W.torso.rotation.y += cut * 0.5 * this.clawSide;
+      if (this.clawSlam) {
+        lx = rx = 0.25 + up * 2.7 - cut * 0.75; lz = 0.25 + up * 0.15; rz = -lz; le = re = -0.4 - up * 0.7 + cut * 0.3;
+        W.torso.rotation.x += -up * 0.4 + cut * 0.7; W.hips.position.y -= cut * 0.12;
+        if (t > 0.4 && !this.slamHit) { this.slamHit = true; stomp(0.9); }
+      } else {
+        if (this.clawSide > 0) { rx = 0.25 + up * 2.0 - cut * 0.9; rz = -0.3 - up * 0.5 + cut * 1.0; re = -0.4 - up * 0.6; }
+        else { lx = 0.25 + up * 2.0 - cut * 0.9; lz = 0.3 + up * 0.5 - cut * 1.0; le = -0.4 - up * 0.6; }
+        W.torso.rotation.y += cut * 0.6 * this.clawSide - up * 0.25 * this.clawSide; W.torso.rotation.x += cut * 0.25;
+        const lead = W.legs[this.clawSide > 0 ? 0 : 1]; lead.hip.rotation.x += cut * 0.5; lead.knee.rotation.x -= cut * 0.35;
+      }
       if (this.clawT >= 1) this.clawT = -1;
     }
     W.armL.sh.rotation.set(lx, 0, lz); W.armR.sh.rotation.set(rx, 0, rz); W.armL.el.rotation.x = le; W.armR.el.rotation.x = re;
-    // halo: drifts slowly, snaps a sixth of a turn each time the Warden adapts
+    // fists clench and flex
+    W.armL.hand.rotation.x = Math.sin(this.time * 2.1) * 0.15 - roar * 0.5; W.armR.hand.rotation.x = Math.sin(this.time * 2.1 + 1.7) * 0.15 - roar * 0.5;
+    // cloth: trails behind when moving, flaps in the air, sways with the gait
+    W.skirt.rotation.x = -0.28 * Math.min(1, Math.max(0, fwd) / 7) + Math.sin(this.time * 2.3) * 0.03 - air * 0.15;
+    W.skirt.rotation.z = Math.sin(ph) * 0.07 * k;
+    W.sash.rotation.x = -0.6 * Math.min(1, Math.max(0, fwd) / 7) + Math.sin(this.time * 3.1) * 0.12 - air * 0.4;
+    // halo: spins in fast and settles; snaps a sixth of a turn each time the Warden adapts
     this.haloAngle += (this.haloTarget - this.haloAngle) * Math.min(1, dt * 10);
-    W.haloSpin.rotation.y = this.haloAngle + this.time * 0.15;
+    const spin = Math.pow(1 - Math.min(1, age / 1.4), 2) * 14;
+    W.haloSpin.rotation.y = this.haloAngle + this.time * 0.15 + spin;
+    W.halo.scale.setScalar(sm(seg(age, 0.15, 0.6)) * (1 - shrink));
     W.halo.position.y = 0.52 + Math.sin(this.time * 2) * 0.02;
-    W.glow.color.setRGB(3, 0.35, 0.45).multiplyScalar(1 + Math.sin(this.time * 4) * 0.2);
+    // runes: flare on the roar, on each adaptation (with a full-body shudder), fade out on revert
+    this.adaptT = (this.adaptT ?? 9) + dt;
+    const ad = Math.max(0, 1 - this.adaptT / 0.6);
+    W.torso.position.x = (Math.random() - 0.5) * 0.05 * ad;
+    W.haloSpin.scale.setScalar(1 + ad * 0.3);
+    W.runeMat.emissiveIntensity = (2.2 + roar * 3 + ad * 5 + smash * 2 + pound * 1.5) * (1 - shrink * 0.85);
+    W.glow.color.setRGB(3, 0.35, 0.45).multiplyScalar((1 + Math.sin(this.time * 4) * 0.2 + roar + ad * 2) * (1 - shrink * 0.8));
   }
   /** Ember flare when the sword transforms. */
   flare() { this.surge = 1; }

@@ -195,6 +195,7 @@ export class Weapon {
     // ---- Rune-Warden: your own monstrous forearms (borrowed from the third-person model)
     this.clawRig = new THREE.Group(); this.root.add(this.clawRig);
     const w = buildWarden();
+    this.clawHands = [w.armR.hand, w.armL.hand]; this.clawIntro = 9; this.clawN = 0; this.clawAir = 0;
     this.clawArms = [w.armR.el, w.armL.el].map((el, i) => {
       el.parent.remove(el); const holder = new THREE.Group(); holder.add(el); el.position.set(0, 0, 0); el.rotation.set(0, 0, 0);
       // elbows just below/behind the view edges, forearms reaching forward and slightly inward
@@ -225,12 +226,13 @@ export class Weapon {
     if (host) { this.muzzle = host.muzzle; this.ejectPort = host.ejectPort; host.group.add(this.flashGroup); this.flashGroup.position.copy(host.muzzle.position); }
     else { this.muzzle = this.rifleMuzzle; this.ejectPort = this.rifleEject; this.gun.add(this.flashGroup); this.flashGroup.position.copy(this.rifleMuzzle.position); }
     this.swingT = -1; this.pumpT = -1; this.inspectT = -1; this.slashArc.visible = false;
+    if (mode === 'claws') { this.clawIntro = 0; this.clawN = 0; }
     if (prev !== 'rifle' || mode !== 'rifle') { this.equip = 0; if (mode === 'shotgun' || prev === 'shotgun') this.surge = 1; }
   }
 
   /** Greatsword swing (alternates forehand / backhand). */
   swing() {
-    if (this.mode === 'claws') { this.clawT = 0; this.clawSide = -this.clawSide; return; }
+    if (this.mode === 'claws') { this.clawT = 0; this.clawSide = -this.clawSide; this.clawN++; this.clawSlamming = this.clawN % 3 === 0; this.slamKicked = false; return; }
     this.swingT = 0; this.swingDir = -this.swingDir; this.inspectT = -1;
   }
 
@@ -332,7 +334,7 @@ export class Weapon {
     if (reloading) rlT = 1 - s.reloadTicks / Sim.RELOAD_TICKS;
     this.animateReload(rlT);
     if (this.mode === 'sword') this.animateSwing(dt);
-    if (this.mode === 'claws') this.animateClaws(dt);
+    if (this.mode === 'claws') this.animateClaws(dt, s);
     if (this.mode === 'shotgun') this.animatePump(dt);
     if (this.mode === 'sniper') { this.animateBolt(dt, snReload ? 1 - s.reloadTicks / Sim.SNIPER_RELOAD_TICKS : -1); if (snReload) rlT = 1 - s.reloadTicks / Sim.SNIPER_RELOAD_TICKS; }
     // Obliteration Beam charge-up: the rifle hums, trembles and its arc lights burn brighter
@@ -437,21 +439,50 @@ export class Weapon {
     this.swordArm.rotation.set(0.5 + (v[3] - this.swordRest[3]) * 0.35, 0.3 + v[4] * 0.4, (v[5] - this.swordRest[5]) * 0.3);
   }
 
-  /** Rune-Warden slashes: alternate arms rake across the view, a crimson arc trails the claws. */
-  animateClaws(dt) {
-    const k0 = Math.sin(performance.now() * 0.002) * 0.02;
-    this.clawArms.forEach((h, i) => { h.position.copy(h.userData.home); h.position.y += k0 * (i ? -1 : 1); h.rotation.copy(h.userData.rot); });
-    this.wardenGlow.color.setRGB(3, 0.35, 0.45).multiplyScalar(1 + Math.sin(performance.now() * 0.004) * 0.2);
+  /**
+   * Rune-Warden arms. On transforming they surge up into view, spread wide (the roar) and hammer down;
+   * then they heave with breath, flex, swing with each lumbering step and rise when airborne.
+   * Slashes alternate arms; every third attack is an overhead double-fist slam.
+   */
+  animateClaws(dt, s) {
+    const now = performance.now() * 0.001, seg2 = (t, a, b) => Math.min(1, Math.max(0, (t - a) / (b - a)));
+    this.clawIntro += dt;
+    const it = this.clawIntro, rise = ease(seg2(it, 0, 0.35)), spread = ease(seg2(it, 0.3, 0.6)) * (1 - ease(seg2(it, 0.95, 1.1)));
+    const slamI = ease(seg2(it, 1.1, 1.25)) * (1 - ease(seg2(it, 1.4, 1.8)));
+    this.clawAir = lerp(this.clawAir, s && !s.grounded ? 1 : 0, 1 - Math.exp(-dt * 8));
+    const breath = Math.sin(now * 1.8), walk = this.bobAmt, ph = this.bobPhase * 0.5;
+    this.clawArms.forEach((h, i) => {
+      const sd = i ? -1 : 1;
+      h.position.copy(h.userData.home); h.rotation.copy(h.userData.rot);
+      h.position.y += breath * 0.012 * (i ? -1 : 1) - (1 - rise) * 0.45 + this.clawAir * 0.06 + spread * 0.05 - slamI * 0.1;
+      h.position.x += sd * spread * 0.05;
+      h.position.z += Math.sin(ph + i * Math.PI) * 0.05 * walk;
+      h.rotation.x += Math.sin(ph + i * Math.PI) * 0.12 * walk + this.clawAir * 0.2 + spread * 0.35 - slamI * 0.25;
+      h.rotation.y -= sd * spread * 0.12;
+      h.rotation.z += sd * (spread * 0.4 + Math.sin(now * 23) * 0.04 * spread);
+      this.clawHands[i].rotation.x = Math.sin(now * 2.1 + i * 1.7) * 0.18 - spread * 0.5;
+    });
+    this.wardenGlow.color.setRGB(3, 0.35, 0.45).multiplyScalar(1 + Math.sin(now * 4) * 0.2 + spread * 1.5);
+    if (it > 1.12 && it < 1.25 && !this.introSlam) { this.introSlam = true; this.landY.kick(-0.9); }
+    if (it < 1) this.introSlam = false;
     if (this.clawT < 0) { this.slashArc.visible = false; return; }
     this.clawT += dt / (Sim.CLAW_TICKS * Sim.DT);
-    const t = Math.min(1, this.clawT), side = this.clawSide, H = this.clawArms[side > 0 ? 0 : 1];
+    const t = Math.min(1, this.clawT), side = this.clawSide;
     const up = ease(seg(t, 0, 0.25)) * (1 - ease(seg(t, 0.25, 0.4))), cut = ease(seg(t, 0.22, 0.4)) * (1 - ease(seg(t, 0.55, 1)));
-    H.position.x += side * (up * 0.1 - cut * 0.3); H.position.y += up * 0.16 - cut * 0.04; H.position.z -= cut * 0.12;
-    H.rotation.x += up * 0.55 - cut * 0.2; H.rotation.y += side * (-up * 0.25 + cut * 0.9); H.rotation.z += side * cut * 0.6;
+    if (this.clawSlamming) {
+      for (const H of this.clawArms) { H.position.y += up * 0.3 - cut * 0.2; H.position.z -= cut * 0.15; H.rotation.x += up * 0.9 - cut * 0.9; }
+      this.clawArms[0].position.x -= cut * 0.08; this.clawArms[1].position.x += cut * 0.08;
+    } else {
+      const H = this.clawArms[side > 0 ? 0 : 1];
+      H.position.x += side * (up * 0.1 - cut * 0.3); H.position.y += up * 0.16 - cut * 0.04; H.position.z -= cut * 0.12;
+      H.rotation.x += up * 0.55 - cut * 0.2; H.rotation.y += side * (-up * 0.25 + cut * 0.9); H.rotation.z += side * cut * 0.6;
+    }
     const arcK = seg(t, 0.22, 0.3) * (1 - seg(t, 0.38, 0.55));
     this.slashArc.visible = arcK > 0.01; this.slashArc.material.opacity = arcK;
     this.slashArc.material.map = this.clawArcTex; this.slashArc.material.color.setRGB(1.8, 0.5, 0.6);
-    this.slashArc.position.set(side > 0 ? 0.24 : -0.24, -0.3, -0.85); this.slashArc.rotation.set(0.15, 0, 0); this.slashArc.scale.set(side > 0 ? 1 : -1, 1, 1);
+    if (this.clawSlamming) { this.slashArc.position.set(0, -0.25, -0.85); this.slashArc.rotation.set(0.15, 0, -0.35); this.slashArc.scale.set(1, 1, 1); }
+    else { this.slashArc.position.set(side > 0 ? 0.24 : -0.24, -0.3, -0.85); this.slashArc.rotation.set(0.15, 0, 0); this.slashArc.scale.set(side > 0 ? 1 : -1, 1, 1); }
+    if (this.clawSlamming && t > 0.4 && !this.slamKicked) { this.slamKicked = true; this.landY.kick(-0.5); }
     if (this.clawT >= 1) { this.clawT = -1; this.slashArc.visible = false; }
   }
 

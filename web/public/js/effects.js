@@ -398,6 +398,15 @@ export class Effects {
     const c = new THREE.Color(color);
     for (let i = 0; i < 4; i++) this.glow.spawn(pos.x + rnd(0.3), pos.y + 0.3 + Math.random() * 1.3, pos.z + rnd(0.3), 0, 0.2, 0, { life: 0.35, size: 0.12, endSize: 0, color: [c.r * 2, c.g * 2, c.b * 2] });
   }
+  /** Rune-Warden stomp / landing / fist smash: dust billows out, grit and rune sparks kick up. */
+  stomp(pos, str) {
+    for (let i = 0; i < Math.round(7 * str); i++) this.smoke.spawn(pos.x + rnd(0.8), 0.15, pos.z + rnd(0.8), rnd(2.6) * str, 0.4 + Math.random() * 0.6, rnd(2.6) * str,
+      { life: 1.2, size: 0.4, endSize: 1.8 * str, alpha: 0.2, color: [0.35, 0.3, 0.27], drag: 2, spin: rnd(0.5) });
+    for (let i = 0; i < Math.round(14 * str); i++) this.debris.spawn(pos.x + rnd(0.5), 0.05, pos.z + rnd(0.5), rnd(3) * str, 2 + Math.random() * 3 * str, rnd(3) * str,
+      { life: 0.7, size: 0.03, color: [0.3, 0.28, 0.26], gravity: 9.8, alpha: 0.9 });
+    for (let i = 0; i < Math.round(8 * str); i++) this.glow.spawn(pos.x + rnd(0.6), 0.1, pos.z + rnd(0.6), rnd(3), 1 + Math.random() * 2, rnd(3),
+      { life: 0.4 + Math.random() * 0.3, size: 0.05, endSize: 0, color: [2.6, 0.3, 0.35], drag: 2, gravity: 4 });
+  }
   footSplash(pos) {
     for (let i = 0; i < 4; i++) this.debris.spawn(pos.x + rnd(0.15), 0.03, pos.z + rnd(0.15), rnd(0.8), 0.8 + Math.random(), rnd(0.8), { life: 0.35, size: 0.018, color: [0.45, 0.55, 0.7], gravity: 9.8, alpha: 0.5 });
   }

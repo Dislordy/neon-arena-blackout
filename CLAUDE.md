@@ -24,6 +24,7 @@ The project has **two tracks** in one repository:
 | V4.7 | Assassin sniper rifle (scope, bolt action) + Obliteration Beam after 5 kills in a row (charge-up, huge beam, burning half of the map) |
 | V4.8 | Beam Clash: two beams meet -> cutscene + W/A/S/D quick-time duel, winner obliterates the loser |
 | V4.9 | Rune-Warden: Soldier's 3-kill streak -> runes + 20 s monster form (claws, 250 HP, adapts to repeated weapons) |
+| V4.9.1 | Rune-Warden animation pass: roar / chest-pound / ground-smash entrance, brute gait, stomps, landing slam, revert shrink |
 
 Details: `CHANGELOG.md`.
 
