@@ -26,6 +26,7 @@ The project has **two tracks** in one repository:
 | V4.9 | Rune-Warden: Soldier's 3-kill streak -> runes + 20 s monster form (claws, 250 HP, adapts to repeated weapons) |
 | V4.9.1 | Rune-Warden animation pass: roar / chest-pound / ground-smash entrance, brute gait, stomps, landing slam, revert shrink |
 | V4.10 | Rune-Warden driven by imported creature animations (`models/warden.glb`, skeleton only) with our own body on the bones |
+| V4.11 | Functional recoil (aim climb + settle), Knight Ashen Guard (block/parry/stagger/riposte) and Cinder Crash (4-kill leap slam) |
 
 Details: `CHANGELOG.md`. Third-party assets and their authors: `CREDITS.md` (keep it up to date).
 
@@ -56,7 +57,7 @@ npm test                               # sim unit tests + server integration tes
   `nightcity.js` (megacity dressing), `textures.js` (procedural PBR), `effects.js`, `weapon.js` + `gunmodel.js` (VX-9)
   + `classgear.js` (knight greatsword / shotgun), `warden.js` (Rune-Warden body; rides the animated skeleton in `public/models/warden.glb`, built by `web/tools/convert-warden.mjs`), `avatar.js` (one look per class), `audio.js` (procedural HRTF audio), `post.js`,
   `hud.js`, `touch.js` (phone controls).
-- `NAB_DEBUG=1` enables a test-only `debug` socket event (teleport, grant shotgun, ult, `mon:'rise'`). Never set it on Render.
+- `NAB_DEBUG=1` enables a test-only `debug` socket event (teleport, grant shotgun, ult, `mon:'rise'`, `crash`). Never set it on Render.
 - Quality presets live in `public/js/main.js` (`PRESETS`); `?quality=low|medium|high|ultra` forces one.
 - Verify visual changes with headless Chromium + SwiftShader (Playwright) and check for console errors at Low/Medium/High.
 - Hosting: `render.yaml` (root) deploys `web/` on Render's free plan; the server honours `PORT`.

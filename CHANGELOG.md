@@ -1,5 +1,19 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.11 — Real recoil + the Knight's Ashen Guard and Cinder Crash
+- **Recoil that matters** (all guns): part of every kick snaps back (camera jolt), the rest stays on your aim, so long
+  rifle bursts climb (~6° over 10 shots) and you pull down to control them; when you stop firing, half of the climb
+  settles back, so tap-firing stays accurate. Aiming down sights cuts recoil by 40%, jumping adds 30%. Shotgun and sniper
+  kick hard per shot. On phones half as much stays on your aim. The server uses your real aim, so it affects hits.
+- **Knight · Ashen Guard**: hold right-click (phones: the aim button) with the greatsword to raise it across your body —
+  hits from the front do 25% damage, you move at 55% speed and can't swing. Raise it in the last 0.2 s before a hit
+  to **parry**: no damage, a bright steel ring, a sword/claw attacker within 4.5 m is **staggered** for 0.9 s
+  (no attacks, no dash), and your next sword hit within 1.5 s is a **riposte** for double damage. Spamming the guard
+  gives no parry window (0.5 s cool-down). The beam, fire and crash shockwaves can't be blocked.
+- **Knight · Cinder Crash**: 4 kills in a row ignite the greatsword (ember HUD meter, "BLADE IGNITES"); the next attack
+  is a burning leap (~10 m) that slams down in a fiery shockwave: 140 damage at the centre to 50 at 6.5 m (walls protect),
+  hurling everyone nearby, with a ring of flames and screen shake. New sounds: parry, block, ignite, leap, impact.
+
 ## V4.10 — Rune-Warden: real creature animations
 - The Warden now moves with an imported, professionally animated creature skeleton ("Creep" rig by **andriichykrii**,
   see `CREDITS.md`): a screaming roar when it transforms, breathing idle, a prowling crouch on all fours when it stands still,

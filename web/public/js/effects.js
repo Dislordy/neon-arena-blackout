@@ -398,6 +398,35 @@ export class Effects {
     const c = new THREE.Color(color);
     for (let i = 0; i < 4; i++) this.glow.spawn(pos.x + rnd(0.3), pos.y + 0.3 + Math.random() * 1.3, pos.z + rnd(0.3), 0, 0.2, 0, { life: 0.35, size: 0.12, endSize: 0, color: [c.r * 2, c.g * 2, c.b * 2] });
   }
+  // ---------------------------------------------------------------- Knight
+  /** A hit on a raised greatsword: a burst of steel sparks (a parry is a bigger, brighter flash). */
+  guardSparks(pos, parry, own = false) {
+    const n = (parry ? 40 : 14) * (own ? 0.5 : 1);
+    for (let i = 0; i < n; i++) this.sparks.spawn(pos.x, pos.y, pos.z, rnd(parry ? 9 : 5), rnd(parry ? 6 : 4) + 2, rnd(parry ? 9 : 5), 0.25 + Math.random() * 0.35, parry ? [1.6, 1.4, 1.0] : [1.4, 0.8, 0.4]);
+    const k = own ? 0.25 : 1; // your own guard is right in front of the camera: keep it from blinding you
+    this.glow.spawn(pos.x, pos.y, pos.z, 0, 0, 0, { life: parry ? 0.22 : 0.1, size: (parry ? 1.6 : 0.6) * k, endSize: 0.05, color: parry ? [2.6, 2.4, 2.0] : [2, 1, 0.4] });
+    this.flashLight(_v.set(pos.x, pos.y, pos.z), parry ? 0xfff0d0 : 0xffa060, (parry ? 40 : 12) * k, parry ? 0.15 : 0.06);
+  }
+  /** Embers streaming off an ignited greatsword (k = intensity). */
+  blaze(pos, k = 1) {
+    for (let i = 0; i < 3 * k; i++) this.glow.spawn(pos.x + rnd(0.15), pos.y + rnd(0.3), pos.z + rnd(0.15), rnd(0.4), 0.8 + Math.random() * 1.2, rnd(0.4),
+      { life: 0.5 + Math.random() * 0.5, size: 0.05 + Math.random() * 0.05, endSize: 0, color: [2.6, 0.9 + Math.random() * 0.4, 0.2], drag: 1, gravity: -0.5 });
+  }
+  /** Cinder Crash impact: a ring of fire bursting outwards, shooting embers, dust, and short-lived flames. */
+  cinderCrash(pos, own = false) {
+    for (const [r, l] of [[4, 0.4], [7, 0.7], [10, 1.0]]) this.ring(pos, 0xff7a2a, r, l);
+    if (!own) this.stomp(pos, 2);
+    for (let i = 0; i < 140; i++) {
+      const a = Math.random() * 6.283, sp = 4 + Math.random() * 10;
+      this.glow.spawn(pos.x, pos.y + 0.3, pos.z, Math.cos(a) * sp, 2 + Math.random() * 7, Math.sin(a) * sp, { life: 0.6 + Math.random() * 0.9, size: 0.06 + Math.random() * 0.06, endSize: 0, color: [2.8, 1.0 + Math.random() * 0.5, 0.2], drag: 1.6, gravity: 6 });
+    }
+    const r0 = own ? 3 : 1.5; // your own slam: keep the dust out of your eyes
+    for (let i = 0; i < 16; i++) { const a = i / 16 * 6.283; this.smoke.spawn(pos.x + Math.cos(a) * r0, pos.y + 0.3, pos.z + Math.sin(a) * r0, Math.cos(a) * 5, 0.6, Math.sin(a) * 5, { life: 1.8, size: 0.6, endSize: 3, alpha: 0.28, color: [0.22, 0.14, 0.1], drag: 1.6, spin: rnd(0.5) }); }
+    if (!own) this.glow.spawn(pos.x, pos.y + 1, pos.z, 0, 0, 0, { life: 0.35, size: 7, endSize: 1, color: [2.8, 1.2, 0.4] });
+    this.flashLight(_v.set(pos.x, pos.y + (own ? 0.3 : 1.2), pos.z), 0xff8a40, own ? 45 : 120, 0.5);
+    const until = this.time + 3.5;
+    for (let i = 0; i < 7; i++) { const a = i / 7 * 6.283 + Math.random() * 0.4, r = 1.6 + Math.random() * 2.2; this.fires.push({ x: pos.x + Math.cos(a) * r, y: pos.y + 0.05, z: pos.z + Math.sin(a) * r, t: Math.random() * 0.2, e: Math.random(), until }); }
+  }
   /** Rune-Warden stomp / landing / fist smash: dust billows out, grit and rune sparks kick up. */
   stomp(pos, str) {
     for (let i = 0; i < Math.round(7 * str); i++) this.smoke.spawn(pos.x + rnd(0.8), 0.15, pos.z + rnd(0.8), rnd(2.6) * str, 0.4 + Math.random() * 0.6, rnd(2.6) * str,

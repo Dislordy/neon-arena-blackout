@@ -92,6 +92,15 @@ Rune-Warden (V4.9): a Soldier with 3 kills in a row → 1.5 s rune rise (30% mov
 ~100° cone, 5 m/s lunge. Adaptation: each hit from the same weapon type does 15% less (max −60%); the halo turns 60° per step.
 On expiry HP is scaled back (hp / 250 × 100).
 
+Knight (V4.11): Ashen Guard = hold ADS with the greatsword: frontal (±75°) hits ×0.25, move ×0.55, no swings; parry if the
+hit lands within 0.2 s of raising (0 damage; melee attacker within 4.5 m staggered 0.9 s: no attacks/dash, move ×0.4;
+next sword hit within 1.5 s ×2); re-raise within 0.5 s gives no parry window; beam/fire/crash ignore the guard.
+Cinder Crash = 4 kills in a row; next attack leaps (vy 10 m/s, 11 m/s forward, ×1.7 gravity falling) ~10 m and on landing
+deals 140→50 damage over 6.5 m (line of sight), knockback 10 m/s + 5.5 m/s up.
+Recoil (V4.11): per shot, a share stays on the aim (rifle 55%, shotgun 40%, sniper 35%), the rest recovers at 7.5/s;
+rifle vertical kick 0.012 + 0.0015·n rad (n = shots in burst, max 10), ADS ×0.6, airborne ×1.3; 260 ms after the last shot
+half of the kept climb settles back.
+
 Everyone has a 50-point energy shield that takes damage before health and refills at 25/s after 3.5 s without damage.
 
 ### Look

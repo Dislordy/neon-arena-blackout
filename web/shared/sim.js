@@ -66,6 +66,20 @@
   const SHOTGUN_PELLETS = 8;
   const SHOTGUN_SPREAD = 0.065;        // radians
   const SHOTGUN_RANGE = 35;
+  // Knight: Ashen Guard (hold ADS with the greatsword) and the Cinder Crash streak power (V4.11)
+  const GUARD_FRONT_COS = Math.cos(1.3);  // blocks hits from within ~75 degrees of where you face
+  const GUARD_FACTOR = 0.25;              // a guarded hit does a quarter of its damage
+  const PARRY_TICKS = 12;                 // raise the guard within 0.2 s of a hit to parry it (no damage)
+  const GUARD_RAISE_CD = 30;              // re-raising sooner than 0.5 s gives no parry window
+  const GUARD_SLOW = 0.55;                // move speed while guarding
+  const STAGGER_TICKS = 54;               // a parried melee attacker reels for 0.9 s (no attacks, no dash)
+  const STAGGER_SLOW = 0.4;
+  const RIPOSTE_MS = 1500;                // after a parry, the next sword hit within 1.5 s does double damage
+  const CRASH_STREAK = 4;                 // 4 kills in a row: the next attack is a Cinder Crash
+  const CRASH_VY = 10, CRASH_SPEED = 11;  // leap
+  const CRASH_FALL = 1.7;                 // extra gravity on the way down (a slam, not a float)
+  const CRASH_MAX_TICKS = 150;
+  const CRASH_RADIUS = 6.5, CRASH_DAMAGE_MAX = 140, CRASH_DAMAGE_MIN = 50, CRASH_KNOCK = 10;
   const TRANSFORM_TICKS = 24;          // sword -> shotgun transformation time (can't fire meanwhile)
 
   // Assassin sniper rifle (bolt action)
@@ -237,11 +251,11 @@
     return {
       x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, og: true, alive: true,
       cls: C.id, dashT: 0, dashCd: 0, dashN: C.dashes, dashGap: 0, ddx: 0, ddz: 0,
-      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0, lock: 0, mon: 0, monT: 0
+      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0, lock: 0, mon: 0, monT: 0, guard: 0, guardT: 0, guardCd: 0, stag: 0, crash: 0, crashT: 0
     };
   }
   function magOf(weapon) { return weapon === WEAPON.RIFLE ? MAG_SIZE : weapon === WEAPON.SNIPER ? SNIPER_MAG : weapon === WEAPON.SHOTGUN ? SHOTGUN_SHELLS : 0; }
-  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT', 'lock', 'mon', 'monT'];
+  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT', 'lock', 'mon', 'monT', 'guard', 'guardT', 'guardCd', 'stag', 'crash', 'crashT'];
   /** Which weapon is in this player's hands right now. */
   function weaponOf(p) { if (p.mon > 0) return WEAPON.CLAWS; const C = classOf(p); return C.weapon === WEAPON.SWORD && p.wpn === 1 ? WEAPON.SHOTGUN : C.weapon; }
   /** Hitbox scale: the Rune-Warden is a lot bigger than a runner. */
@@ -314,14 +328,16 @@
    * Returns gameplay events produced this tick (used for effects/hit detection).
    */
   function stepPlayer(p, input) {
-    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false, ultStart: false, ultFire: false, monStart: false, monEnd: false };
+    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false, ultStart: false, ultFire: false, monStart: false, monEnd: false, guardUp: false, crashStart: false, crashLand: false };
     const yaw = Number(input.yaw), pitch = Number(input.pitch);
     if (Number.isFinite(yaw)) p.yaw = ((yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     if (Number.isFinite(pitch)) p.pitch = clamp(pitch, -1.45, 1.45);
     if (!p.alive) return ev;
     // locked in a beam clash: you can look around, nothing else
     if (p.lock > 0) { p.lock--; p.vx = p.vz = 0; p.dashT = 0; return ev; }
-    const b = input.b | 0;
+    let b = input.b | 0;
+    if (p.stag > 0) { p.stag--; b &= ~(BTN.FIRE | BTN.DASH); }   // staggered by a parry: reeling
+    if (p.guardCd > 0) p.guardCd--;
 
     const C = classOf(p);
     // Rune-Warden: rising (runes crawl over you), then 20 s of monster, then back to normal
@@ -343,7 +359,12 @@
     const sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
     const wx = cy * mx - sy * mz, wz = -sy * mx - cy * mz;
 
-    if ((b & BTN.DASH) && p.dashN > 0 && p.dashGap === 0 && p.dashT === 0) {
+    // Cinder Crash: the Knight's next attack is a burning leap that slams down where it lands
+    if (p.crash === 1 && p.crashT === 0 && (b & BTN.FIRE) && p.fireCd === 0 && p.og && C.weapon === WEAPON.SWORD) {
+      p.crash = 0; p.crashT = 1; p.guard = 0; p.dashT = 0;
+      p.vy = CRASH_VY; p.og = false; p.vx = -sy * CRASH_SPEED; p.vz = -cy * CRASH_SPEED; ev.crashStart = true;
+    }
+    if (p.crashT === 0 && (b & BTN.DASH) && p.dashN > 0 && p.dashGap === 0 && p.dashT === 0) {
       let dx = wx, dz = wz;
       const l = Math.hypot(dx, dz);
       if (l < 0.1) { dx = -sy; dz = -cy; } else { dx /= l; dz /= l; }
@@ -355,16 +376,16 @@
       p.dashT--;
       p.vx = p.ddx * DASH_SPEED; p.vz = p.ddz * DASH_SPEED;
       if (p.dashT === 0) { p.vx *= 0.35; p.vz *= 0.35; }
-    } else {
+    } else if (p.crashT === 0) {
       const k = 1 - Math.exp(-(p.og ? GROUND_ACCEL : AIR_ACCEL) * DT);
-      const speed = (p.mon > 0 ? MON_SPEED : C.speed) * (p.ultT > 0 || p.monT > 0 ? ULT_SLOW : 1);
+      const speed = (p.mon > 0 ? MON_SPEED : C.speed) * (p.ultT > 0 || p.monT > 0 ? ULT_SLOW : 1) * (p.guard ? GUARD_SLOW : 1) * (p.stag > 0 ? STAGGER_SLOW : 1);
       p.vx += (wx * speed - p.vx) * k;
       p.vz += (wz * speed - p.vz) * k;
     }
 
     const wasGrounded = p.og;
-    if ((b & BTN.JUMP) && p.og) { p.vy = p.mon > 0 ? MON_JUMP : JUMP_VELOCITY; p.og = false; ev.jump = true; }
-    p.vy -= GRAVITY * DT * (p.dashT > 0 ? 0.25 : 1);
+    if ((b & BTN.JUMP) && p.og && p.crashT === 0) { p.vy = p.mon > 0 ? MON_JUMP : JUMP_VELOCITY; p.og = false; ev.jump = true; }
+    p.vy -= GRAVITY * DT * (p.dashT > 0 ? 0.25 : 1) * (p.crashT > 0 && p.vy < 0 ? CRASH_FALL : 1);
 
     moveHorizontal(p, 'x', p.vx * DT);
     moveHorizontal(p, 'z', p.vz * DT);
@@ -380,8 +401,14 @@
     const limX = HALF_X + ALCOVE_DEPTH - PLAYER_RADIUS, limZ = HALF_Z - PLAYER_RADIUS;
     p.x = clamp(p.x, -limX, limX); p.z = clamp(p.z, -limZ, limZ);
 
-    if (p.monT > 0) {
-      // transforming: no attacks
+    if (p.crashT > 0) { // mid-leap: slam down on landing
+      p.crashT++;
+      if ((p.og && p.crashT > 4) || p.crashT > CRASH_MAX_TICKS) { p.crashT = 0; p.fireCd = 24; p.vx *= 0.15; p.vz *= 0.15; ev.crashLand = true; }
+    }
+    if (weapon !== WEAPON.SWORD || p.crashT > 0) p.guard = 0;
+
+    if (p.monT > 0 || p.crashT > 0 || ev.crashLand) {
+      // transforming / leaping: no attacks
     } else if (weapon === WEAPON.CLAWS) {
       if ((b & BTN.FIRE) && p.fireCd === 0) {
         p.fireCd = CLAW_TICKS; ev.swing = true; ev.claw = true;
@@ -406,7 +433,12 @@
         }
       }
     } else if (weapon === WEAPON.SWORD) {
-      if ((b & BTN.FIRE) && p.fireCd === 0) {
+      // Ashen Guard: hold ADS to raise the greatsword (blocks frontal hits; the first 0.2 s is a parry)
+      const want = !!(b & BTN.ADS) && p.stag === 0;
+      if (want && !p.guard) { p.guard = 1; p.guardT = p.guardCd > 0 ? PARRY_TICKS + 1 : 0; ev.guardUp = true; }
+      else if (!want && p.guard) { p.guard = 0; p.guardCd = GUARD_RAISE_CD; }
+      if (p.guard) { if (p.guardT < 255) p.guardT++; }
+      else if ((b & BTN.FIRE) && p.fireCd === 0) {
         p.fireCd = SWORD_TICKS; ev.swing = true;
         if (p.og && p.dashT === 0) { p.vx -= sy * SWORD_LUNGE; p.vz -= cy * SWORD_LUNGE; }
       }
@@ -575,6 +607,14 @@
    * Sword hit test: is this target within reach and inside the swing's cone?
    * Returns { t: distance, part } or null. Walls are checked by the caller.
    */
+  /** Does a guarding knight at `p` face an attack coming from (ax, az)? */
+  function guardBlocks(p, ax, az) {
+    if (!p.guard) return false;
+    const dx = ax - p.x, dz = az - p.z, l = Math.hypot(dx, dz) || 1;
+    return (dx * -Math.sin(p.yaw) + dz * -Math.cos(p.yaw)) / l > GUARD_FRONT_COS;
+  }
+  /** Cinder Crash shockwave damage at distance d from the impact (0 outside the radius). */
+  function crashDamage(d) { return d > CRASH_RADIUS ? 0 : Math.round(CRASH_DAMAGE_MAX + (CRASH_DAMAGE_MIN - CRASH_DAMAGE_MAX) * (d / CRASH_RADIUS)); }
   function swordReach(eye, dir, pos, claws = false) {
     let best = null;
     const k = scaleOf(pos), range = claws ? CLAW_RANGE : SWORD_RANGE, arc = claws ? CLAW_ARC_COS : SWORD_ARC_COS;
@@ -594,6 +634,8 @@
     PLAYER_RADIUS, PLAYER_HEIGHT, EYE_HEIGHT, STEP_HEIGHT, MOVE_SPEED, JUMP_VELOCITY,
     DASH_TICKS, DASH_COOLDOWN_TICKS, MAG_SIZE, FIRE_TICKS, RELOAD_TICKS, MAX_RANGE, BTN,
     CLASSES, WEAPON, classOf, weaponOf, grantShotgun, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_PER_S,
+    GUARD_FRONT_COS, GUARD_FACTOR, PARRY_TICKS, GUARD_RAISE_CD, GUARD_SLOW, STAGGER_TICKS, STAGGER_SLOW, RIPOSTE_MS,
+    CRASH_STREAK, CRASH_VY, CRASH_SPEED, CRASH_RADIUS, CRASH_DAMAGE_MAX, CRASH_DAMAGE_MIN, CRASH_KNOCK, guardBlocks, crashDamage,
     SWORD_TICKS, SWORD_RANGE, SWORD_DAMAGE, SHOTGUN_SHELLS, SHOTGUN_TICKS, SHOTGUN_PELLETS, SHOTGUN_RANGE, TRANSFORM_TICKS,
     pelletDirs, swordReach, magOf, sniperDir, beamAxis, inBeam, fireZoneFor, inFireZone,
     MON_STREAK, MON_RISE_TICKS, MON_TICKS, MON_HP, MON_SCALE, CLAW_TICKS, CLAW_DAMAGE, CLAW_RANGE, ADAPT_STEP, ADAPT_MAX, scaleOf,

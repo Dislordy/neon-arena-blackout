@@ -80,7 +80,7 @@ const local = {
   sim: Sim.newPlayerState(), prev: Sim.newPlayerState(), seq: 0, pending: [], outbox: [], acc: 0,
   yaw: 0, pitch: 0, recoilPitch: 0, recoilYaw: 0, hp: 100, alive: true, errorOffset: new THREE.Vector3(),
   cd: { shield: 0, scan: 0, shieldOn: 0 }, cdAt: 0, killedBy: '', deadAt: 0, stepDist: 0, wasOg: true,
-  shotsInBurst: 0, lastFireT: 0, sh: 50, shRegen: false, streak: 0, circle: null, burnNoticeAt: 0
+  shotsInBurst: 0, lastFireT: 0, settlePitch: 0, lastKickT: 0, sh: 50, shRegen: false, streak: 0, circle: null, burnNoticeAt: 0
 };
 const remotes = new Map(); // id -> { buffer: [], state, stepDist, xrayUntil, lastFlags }
 
@@ -157,7 +157,7 @@ $('goLandscape').addEventListener('click', () => goLandscape());
 const CLASS_INFO = [
   { blurb: 'Rifle · 3 in a row = monster', stats: '100 HP · 1 dash', icon: '<path d="M5 13a7 7 0 0 1 14 0v2H5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15h14M8 11h8" stroke="currentColor" stroke-width="1.8"/><path d="M9 18h6" stroke="currentColor" stroke-width="1.8"/>' },
   { blurb: 'Sniper · 5 in a row = beam', stats: '85 HP · 3 dashes', icon: '<path d="M12 3c-4 3-6 7-6 11a6 6 0 0 0 12 0c0-4-2-8-6-11z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13l2 1M15 13l-2 1" stroke="currentColor" stroke-width="2"/>' },
-  { blurb: 'Greatsword · kill → shotgun', stats: '130 HP · 1 dash', icon: '<path d="M12 2l2 3v11h-4V5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 16h12M12 16v5" stroke="currentColor" stroke-width="2"/>' }
+  { blurb: 'Greatsword · RMB guard/parry · 4 in a row = Cinder Crash', stats: '130 HP · 1 dash', icon: '<path d="M12 2l2 3v11h-4V5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 16h12M12 16v5" stroke="currentColor" stroke-width="2"/>' }
 ];
 let classChoice = Sim.CLASSES[store.get('cls', 0)] ? store.get('cls', 0) : 0;
 function renderPickers() {
@@ -419,7 +419,7 @@ socket.on('adapt', a => {
   const av = avatars.get(a.id), st = a.id === myId ? local.sim : remotes.get(a.id)?.state;
   if (av) av.adapt();
   if (st) audio.play('adaptClank', a.id === myId ? { volume: 0.7, reverb: 0.2 } : { pos: new THREE.Vector3(st.x, st.y + 3.2, st.z), volume: 1.3, ref: 6, reverb: 0.3 });
-  const what = { rifle: 'RIFLE', sniper: 'SNIPER', shotgun: 'SHOTGUN', sword: 'GREATSWORD', claws: 'CLAWS', fire: 'FIRE', beam: 'BEAM' }[a.w] || a.w.toUpperCase();
+  const what = { rifle: 'RIFLE', sniper: 'SNIPER', shotgun: 'SHOTGUN', sword: 'GREATSWORD', claws: 'CLAWS', fire: 'FIRE', beam: 'BEAM', crash: 'CINDER CRASH' }[a.w] || a.w.toUpperCase();
   if (a.id === myId) hud.notice(`ADAPTED · ${what} −${a.n * 15}%`, 1100);
   else if (st) hud.damageNumber(`ADAPTED −${a.n * 15}%`, 'shield', new THREE.Vector3(st.x, st.y + 3.3, st.z));
 });
@@ -587,6 +587,35 @@ socket.on('transform', t => {
   if (a) a.flare();
   if (st) { const p = new THREE.Vector3(st.x, st.y + 1.2, st.z); audio.play('transform', { pos: p, volume: 0.9, ref: 3 }); fx.embers(p, EMBER); }
 });
+// ------------------------------------------------------------------ Knight: Ashen Guard & Cinder Crash
+const posOf = id => { const st = id === myId ? local.sim : remotes.get(id)?.state; return st ? new THREE.Vector3(st.x, st.y, st.z) : null; };
+socket.on('guard', g => {
+  const own = g.id === myId, base = posOf(g.id);
+  let at = g.p ? new THREE.Vector3(g.p[0], g.p[1], g.p[2]) : base && base.setY(base.y + 1.3);
+  if (own) at = camera.position.clone().add(new THREE.Vector3(-0.15, -0.2, -1.5).applyQuaternion(camera.quaternion)); // on your blade, in front of you
+  if (at) fx.guardSparks(at, g.parry, own);
+  audio.play(g.parry ? 'parry' : 'guardBlock', own ? { volume: g.parry ? 1 : 0.7, reverb: 0.3 } : { pos: at || undefined, volume: g.parry ? 1.5 : 0.9, ref: 4, reverb: 0.3 });
+  if (own) {
+    if (g.parry) { hud.notice('PARRY! · RIPOSTE READY', 1300); weapon.guardHit(true); beamFlash = Math.max(beamFlash, 0.08); touch.buzz(60); }
+    else { weapon.guardHit(false); camShake.kick = 1.2; touch.buzz(15); }
+  } else { const a = avatars.get(g.id); if (a) a.guardHit(g.parry); }
+  if (g.by === myId && g.parry) { hud.notice(g.stag ? 'PARRIED · STAGGERED' : 'PARRIED', 1200); if (g.stag) { damage.shake = 0.8; camShake.dash = 0.7; } }
+});
+socket.on('riposte', r => { if (r.id === myId) hud.notice('RIPOSTE ×2', 900); const p = posOf(r.id); if (p) fx.blaze(p.setY(p.y + 1.3), 3); });
+socket.on('crashReady', c => {
+  if (c.id === myId) { hud.notice('BLADE IGNITES · NEXT ATTACK: CINDER CRASH', 2000); audio.play('crashReady', { volume: 0.9, reverb: 0.3 }); touch.buzz(80); return; }
+  const p = posOf(c.id); if (p) audio.play('crashReady', { pos: p.setY(p.y + 1.2), volume: 1.2, ref: 5 });
+});
+socket.on('crashLeap', c => { const p = posOf(c.id); if (p) audio.play('crashLeap', { pos: p.setY(p.y + 1), volume: 1.4, ref: 6, reverb: 0.3 }); });
+socket.on('crash', c => {
+  const p = new THREE.Vector3(c.p[0], c.p[1], c.p[2]), own = c.id === myId;
+  fx.cinderCrash(p, own);
+  audio.play('crashImpact', own ? { volume: 1.1, reverb: 0.5 } : { pos: p.clone().setY(p.y + 0.5), volume: 2, ref: 10, rolloff: 0.6, reverb: 0.5 });
+  const d = Math.hypot(p.x - local.sim.x, p.z - local.sim.z);
+  if (own || d < 16) { damage.shake = Math.min(1, damage.shake + (own ? 1 : 1 - d / 16)); beamFlash = Math.max(beamFlash, own ? 0.12 : 0.15 * (1 - d / 16)); touch.buzz(own ? 160 : 60); }
+  const a = avatars.get(c.id); if (a) a.slam();
+});
+
 socket.on('sheathe', t => {
   const st = t.id === myId ? local.sim : remotes.get(t.id)?.state;
   if (t.id === myId) { audio.play('transform', { volume: 0.45, rate: 1.25, reverb: 0.1 }); hud.notice('SHELLS SPENT · BLADE RESTORED', 1200); }
@@ -717,6 +746,18 @@ function simTick() {
 }
 
 const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _m = new THREE.Vector3(), _e = new THREE.Vector3();
+/**
+ * Recoil that matters: part of each kick snaps back (camera jolt), the rest stays on your aim, so long bursts
+ * climb and you pull down to control them. When you stop firing, half of the burst's climb settles back.
+ * Your aim (yaw/pitch incl. recoil) is what the server uses for the shot, so this is real, not cosmetic.
+ */
+function kickAim(up, side, keep) {
+  if (isTouch) keep *= 0.5; // thumbs can't pull down as precisely as a mouse
+  local.recoilPitch += up * (1 - keep); local.recoilYaw += side * (1 - keep);
+  local.pitch = THREE.MathUtils.clamp(local.pitch + up * keep, -1.4, 1.4); local.yaw += side * keep;
+  local.settlePitch += up * keep * 0.5; local.lastKickT = performance.now();
+}
+const airKick = () => (local.sim.og ? 1 : 1.3);
 function handleLocalEvents(ev, wasOg, input) {
   const s = local.sim;
   if (ev.fire && ev.shotgun) {
@@ -740,8 +781,7 @@ function handleLocalEvents(ev, wasOg, input) {
     }
     fx.flashLight(muzzle, 0xff8a40, 18);
     audio.shotgunBlast(null, true);
-    local.recoilPitch += (aimDown ? 0.04 : 0.065);
-    local.recoilYaw += (Math.random() - 0.5) * 0.012;
+    kickAim(0.07 * (aimDown ? 0.7 : 1) * airKick(), (Math.random() - 0.5) * 0.024, 0.4); // a heavy shove up
     camShake.kick = 2.2;
     touch.buzz(30);
   } else if (ev.fire) {
@@ -767,21 +807,23 @@ function handleLocalEvents(ev, wasOg, input) {
     fx.flashLight(muzzle, sn ? 0xc0c8ff : 0xffb070, sn ? 16 : 10);
     if (sn) audio.sniperShot(null, true); else audio.gunshot(null, true);
     if (!hitPlayer && wh) { fx.impact(end, wh.n, wh.kind); audio.play(impactSound(wh.kind), { pos: end, volume: 0.7 }); }
-    if (sn) { local.recoilPitch += ev.scoped ? 0.035 : 0.06; local.recoilYaw += (Math.random() - 0.5) * 0.01; camShake.kick = 1.8; touch.buzz(25); return finishEvents(ev, wasOg); }
+    if (sn) { kickAim((ev.scoped ? 0.05 : 0.08) * airKick(), (Math.random() - 0.5) * 0.02, 0.35); camShake.kick = 1.8; touch.buzz(25); return finishEvents(ev, wasOg); }
     // shell ejection
     const port = weapon.ejectWorld(camera, _e);
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion), up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
     fx.shell(port, right.multiplyScalar(2 + Math.random()).addScaledVector(up, 1.5 + Math.random()).add(new THREE.Vector3(s.vx, s.vy, s.vz)));
     // recoil pattern: steady vertical climb with a slight horizontal drift that grows during a burst
-    const k = aimDown ? 0.6 : 1;
-    local.recoilPitch += (0.018 + Math.min(local.shotsInBurst, 8) * 0.0018) * k;
-    local.recoilYaw += (Math.sin(local.shotsInBurst * 1.7) * 0.004 + (Math.random() - 0.5) * 0.004) * k;
+    const k = (aimDown ? 0.6 : 1) * airKick(), n = Math.min(local.shotsInBurst, 10);
+    kickAim((0.012 + n * 0.0015) * k, (Math.sin(local.shotsInBurst * 1.7) * 0.005 + (Math.random() - 0.5) * 0.004) * k, 0.55);
     camShake.kick = 1;
   }
   finishEvents(ev, wasOg);
 }
 function finishEvents(ev, wasOg) {
   const s = local.sim;
+  if (ev.guardUp) audio.play('guardBlock', { volume: 0.22, rate: 1.7, reverb: 0.1 });
+  if (ev.crashStart) { audio.play('crashLeap', { volume: 1.0, reverb: 0.3 }); camShake.dash = 1.3; weapon.crashLeap(); touch.buzz(40); }
+  if (ev.crashLand) { weapon.slam(); camShake.land = 2.2; }
   // Obliteration Beam: rune circle builds up in front of you, then the beam goes off
   if (ev.ultStart) {
     if (local.circle) local.circle.cancel();
@@ -844,7 +886,8 @@ function updateRemotes(dt) {
     const a = avatars.get(id);
     const s = sampleRemote(r, t);
     if (!a || !s) continue;
-    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64), charging: !!(s.flags & 256), ultReady: !!(s.flags & 512), mon: s.flags & 1024 ? 1 : 0, monT: s.flags & 2048 ? 1 : 0 };
+    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64), charging: !!(s.flags & 256), ultReady: !!(s.flags & 512), mon: s.flags & 1024 ? 1 : 0, monT: s.flags & 2048 ? 1 : 0, guard: !!(s.flags & 4096), stag: !!(s.flags & 8192), crashReady: !!(s.flags & 16384), crashing: !!(s.flags & 32768) };
+    if (st.alive && (st.crashReady || st.crashing) && (r.blazeT = (r.blazeT || 0) - dt) <= 0) { r.blazeT = st.crashing ? 0.03 : 0.12; fx.blaze(a.bladeWorld(), st.crashing ? 2 : 1); }
     // steps & dash trails
     if (st.alive && r.state && st.og) {
       r.stepDist += Math.hypot(st.x - r.state.x, st.z - r.state.z);
@@ -870,6 +913,9 @@ function updateCamera(dt, alpha) {
   // recoil recovery
   const rec = 1 - Math.exp(-dt * 7.5);
   local.recoilPitch -= local.recoilPitch * rec; local.recoilYaw -= local.recoilYaw * rec;
+  if (local.settlePitch > 0 && performance.now() - local.lastKickT > 260) { // burst over: half the climb settles back
+    const d = local.settlePitch * (1 - Math.exp(-dt * 6)); local.settlePitch -= d; local.pitch = THREE.MathUtils.clamp(local.pitch - d, -1.4, 1.4);
+  }
   local.errorOffset.multiplyScalar(Math.exp(-dt * 12));
   const x = p.x + (s.x - p.x) * alpha + local.errorOffset.x;
   const y = p.y + (s.y - p.y) * alpha + local.errorOffset.y;
@@ -954,6 +1000,7 @@ function frame() {
     hud.ability('dashBtn', s.dashN > 0 ? 0 : s.dashCd / C.dashRecharge, s.dashT > 0);
     hud.dashCharges(s.dashN, C.dashes, s.dashN < C.dashes ? s.dashCd / C.dashRecharge : 0);
     if (C.key === 'soldier') hud.runes(true, Math.min(Sim.MON_STREAK, local.streak), s.monT > 0, s.mon > 0 ? Math.ceil(s.mon * Sim.DT) : 0);
+    else if (C.key === 'knight') hud.cinder(true, Math.min(Sim.CRASH_STREAK, local.streak), s.crash === 1, s.crashT > 0);
     else hud.ult(wpn === 'sniper', Math.min(Sim.ULT_STREAK, local.streak), s.ult === 1, s.ultT > 0);
     hud.scope(!!weapon.scoped && local.alive);
     hud.ability('shieldBtn', Math.max(0, local.cd.shield - since) / 9000, local.cd.shieldOn - since > 0);
@@ -964,7 +1011,8 @@ function frame() {
     hud.death(!local.alive, local.killedBy, Math.max(0, 2.5 - (now - local.deadAt) / 1000));
     hud.updateDamageNumbers(dt, camera);
     weapon.update({ dt, moveSpeed: Math.hypot(s.vx, s.vz), grounded: s.og, aiming: aimDown, mouseDX, mouseDY, reloadTicks: s.reload, ammo: s.ammo, alive: local.alive, dashing: s.dashT > 0, mode: wpn,
-      charging: s.ultT > 0 ? 1 - s.ultT / Sim.ULT_CHARGE_TICKS : s.monT > 0 ? 1 - s.monT / Sim.MON_RISE_TICKS : 0, ultReady: s.ult === 1 });
+      charging: s.ultT > 0 ? 1 - s.ultT / Sim.ULT_CHARGE_TICKS : s.monT > 0 ? 1 - s.monT / Sim.MON_RISE_TICKS : 0, ultReady: s.ult === 1,
+      guard: !!s.guard, stag: s.stag > 0, blaze: s.crash === 1 || s.crashT > 0 });
     if (cine) weapon.root.visible = false;
     const g = post.grade.uniforms;
     g.damage.value = damage.pulse; g.lowHp.value = local.alive && local.hp <= 35 ? (35 - local.hp) / 35 * 0.8 + 0.2 : 0;

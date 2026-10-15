@@ -53,7 +53,7 @@ export class Hud {
   /** Assassin kill-streak meter (5 in a row = Obliteration Beam). */
   ult(show, streak, ready, charging) {
     this.set('ult', `${show}|${streak}|${ready}|${charging}`, () => {
-      $('ultBox').classList.remove('runes'); [...$('ultPips').children].forEach(p => { p.style.display = ''; });
+      $('ultBox').classList.remove('runes', 'cinder'); [...$('ultPips').children].forEach(p => { p.style.display = ''; });
       $('ultBox').classList.toggle('hidden', !show);
       $('ultBox').classList.toggle('ready', ready || charging);
       $('ultLabel').textContent = charging ? 'CHARGING…' : ready ? 'OBLITERATION READY · FIRE' : 'STREAK';
@@ -65,9 +65,19 @@ export class Hud {
     this.set('ult', `r|${show}|${n}|${rising}|${secs}`, () => {
       $('ultBox').classList.toggle('hidden', !show);
       $('ultBox').classList.toggle('ready', rising || secs > 0);
-      $('ultBox').classList.add('runes');
+      $('ultBox').classList.remove('cinder'); $('ultBox').classList.add('runes');
       $('ultLabel').textContent = rising ? 'THE RUNES AWAKEN…' : secs > 0 ? `RUNE-WARDEN · ${secs}s` : 'RUNES';
       [...$('ultPips').children].forEach((p, i) => { p.style.display = i < Sim.MON_STREAK ? '' : 'none'; p.classList.toggle('on', rising || secs > 0 || i < n); });
+    });
+  }
+  /** Knight ember meter (4 in a row = Cinder Crash), ready, and mid-leap. */
+  cinder(show, n, ready, leaping) {
+    this.set('ult', `c|${show}|${n}|${ready}|${leaping}`, () => {
+      $('ultBox').classList.remove('runes'); $('ultBox').classList.add('cinder');
+      $('ultBox').classList.toggle('hidden', !show);
+      $('ultBox').classList.toggle('ready', ready || leaping);
+      $('ultLabel').textContent = leaping ? 'CINDER CRASH!' : ready ? 'CINDER CRASH READY · ATTACK' : 'EMBERS';
+      [...$('ultPips').children].forEach((p, i) => { p.style.display = i < Sim.CRASH_STREAK ? '' : 'none'; p.classList.toggle('on', ready || leaping || i < n); });
     });
   }
   scope(on) { this.set('scope', on, v => { $('scope').classList.toggle('hidden', !v); $('crosshair').style.visibility = v ? 'hidden' : ''; }); }

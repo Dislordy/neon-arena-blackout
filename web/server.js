@@ -190,6 +190,20 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
   }
   const hardened = target.shieldUntil > t;
   let dmg = raw;
+  // Knight's Ashen Guard: frontal hits are blocked; raised at the last moment, they are parried
+  if (weapon !== 'beam' && weapon !== 'fire' && weapon !== 'crash' && Sim.guardBlocks(target.sim, shooter.sim.x, shooter.sim.z)) {
+    const melee = weapon === Sim.WEAPON.SWORD || weapon === Sim.WEAPON.CLAWS;
+    if (target.sim.guardT <= Sim.PARRY_TICKS && t - (target.guardAt || 0) <= Sim.PARRY_TICKS * Sim.DT * 1000 + 60) { // window in ticks AND real time
+      target.riposteUntil = t + Sim.RIPOSTE_MS;
+      const close = Math.hypot(shooter.sim.x - target.sim.x, shooter.sim.z - target.sim.z) < 4.5;
+      if (melee && close) shooter.sim.stag = Sim.STAGGER_TICKS;
+      io.to(room.code).emit('guard', { id: target.id, by: shooter.id, parry: true, stag: melee && close, w: weapon, p: v3(point) });
+      io.to(shooter.id).emit('hit', { id: target.id, d: 0, part, k: false, p: v3(point), blocked: true, parried: true, w: weapon });
+      return false;
+    }
+    dmg = Math.max(1, Math.round(dmg * Sim.GUARD_FACTOR));
+    io.to(room.code).emit('guard', { id: target.id, by: shooter.id, parry: false, w: weapon, p: v3(point) });
+  }
   // Rune-Warden adaptation: every hit from the same weapon type does 15% less the next time (up to 60%)
   if (target.sim.mon > 0) {
     const key = weapon || 'rifle', n = (target.adapt[key] || 0);
@@ -208,7 +222,7 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
   if (killed) {
     target.sim.alive = false; target.deaths++;
     target.respawnAt = t + RESPAWN_MS;
-    target.streak = 0; target.sim.ult = 0; target.sim.ultT = 0; // dying loses the streak and a charged beam
+    target.streak = 0; target.sim.ult = 0; target.sim.ultT = 0; target.sim.crash = 0; target.sim.guard = 0; // dying loses the streak and a charged power
     shooter.kills++; shooter.score += part === 'head' ? 125 : 100;
     shooter.streak = (shooter.streak || 0) + 1;
     // Assassin: 5 kills in a row charge the Obliteration Beam (the next shot)
@@ -223,8 +237,14 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
       io.to(room.code).emit('monRise', { id: shooter.id });
       addFeed(room, `${shooter.name}'s runes awaken`, 'kill');
     }
+    // Knight: 4 kills in a row -> the next attack is a Cinder Crash
+    if (Sim.classOf(shooter.sim).key === 'knight' && shooter.sim.alive && shooter.streak >= Sim.CRASH_STREAK && !shooter.sim.crash && !shooter.sim.crashT) {
+      shooter.sim.crash = 1; shooter.streak = 0;
+      io.to(room.code).emit('crashReady', { id: shooter.id });
+      addFeed(room, `${shooter.name}'s blade ignites — CINDER CRASH`, 'kill');
+    }
     target.adapt = {};
-    const how = weapon === 'beam' ? '✦ OBLITERATED' : weapon === Sim.WEAPON.CLAWS ? '☬ torn apart by' : weapon === 'fire' ? '🔥 burned' : weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
+    const how = weapon === 'beam' ? '✦ OBLITERATED' : weapon === 'crash' ? '☄ crushed' : weapon === Sim.WEAPON.CLAWS ? '☬ torn apart by' : weapon === 'fire' ? '🔥 burned' : weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
     addFeed(room, `${shooter.name} ${how} ${target.name}`, 'kill');
     io.to(room.code).emit('killed', { killer: shooter.id, victim: target.id, head: part === 'head', w: weapon, pos: [r3(target.sim.x), r3(target.sim.y), r3(target.sim.z)] });
     // knight reward: the greatsword transforms into a shotgun
@@ -396,7 +416,26 @@ function handleSwing(room, shooter, viewTime, claws = false) {
   const weapon = claws ? Sim.WEAPON.CLAWS : Sim.WEAPON.SWORD;
   io.to(room.code).except(shooter.id).emit('swing', { id: shooter.id, h: best ? best.target.id : null, p: best ? v3(best.point) : null, c: claws });
   if (!best) return;
-  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, weapon), best.part, best.point, weapon);
+  let dmg = Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, weapon);
+  if (!claws && shooter.riposteUntil > t) { dmg *= 2; shooter.riposteUntil = 0; io.to(room.code).emit('riposte', { id: shooter.id }); } // after a parry
+  applyDamage(room, shooter, best.target, dmg, best.part, best.point, weapon);
+}
+
+/** Cinder Crash landing: a shockwave that hurts and hurls everyone nearby (walls shield you). */
+function handleCrash(room, shooter) {
+  const s = shooter.sim, o = { x: s.x, y: s.y + 1, z: s.z };
+  io.to(room.code).emit('crash', { id: shooter.id, p: [r3(s.x), r3(s.y), r3(s.z)] });
+  for (const target of room.players.values()) {
+    if (target === shooter || !target.sim.alive) continue;
+    const ts = target.sim, c = { x: ts.x, y: ts.y + 1, z: ts.z };
+    const dx = c.x - o.x, dy = c.y - o.y, dz = c.z - o.z, d = Math.hypot(dx, dy, dz);
+    const dmg = Sim.crashDamage(d);
+    if (!dmg) continue;
+    const wall = Sim.raycastWorld(o, { x: dx / d, y: dy / d, z: dz / d }, d);
+    if (wall && wall.t < d - 0.4) continue;
+    const killed = applyDamage(room, shooter, target, dmg, 'body', c, 'crash');
+    if (!killed) { const h = Math.hypot(dx, dz) || 1, k = Sim.CRASH_KNOCK * (1 - d / Sim.CRASH_RADIUS * 0.5); ts.vx += dx / h * k; ts.vz += dz / h * k; ts.vy = Math.max(ts.vy, 5.5); ts.og = false; }
+  }
 }
 const r3 = v => Math.round(v * 1000) / 1000;
 
@@ -427,6 +466,9 @@ function tickRoom(room) {
       if (ev.ultStart) io.to(room.code).except(p.id).emit('ultCharge', { id: p.id });
       if (ev.ultFire) handleBeam(room, p);
       if (ev.swing) handleSwing(room, p, input.vt, !!ev.claw);
+      if (ev.guardUp) p.guardAt = p.sim.guardT <= 1 ? now() : 0;   // a fresh raise opens the parry window   // a fresh raise opens the parry window
+      if (ev.crashStart) io.to(room.code).except(p.id).emit('crashLeap', { id: p.id });
+      if (ev.crashLand) handleCrash(room, p);
       if (ev.monStart) { p.hp = Sim.MON_HP; p.shield = Sim.classOf(p.sim).shield; p.adapt = {}; io.to(room.code).emit('monStart', { id: p.id }); emitMeta(room); }
       if (ev.monEnd) { p.hp = Math.max(1, Math.round(p.hp / Sim.MON_HP * Sim.classOf(p.sim).hp)); p.adapt = {}; io.to(room.code).emit('monEnd', { id: p.id }); emitMeta(room); }
       if (ev.sheathe) io.to(room.code).emit('sheathe', { id: p.id });
@@ -450,7 +492,7 @@ function sendSnapshots(room, t) {
   const others = [];
   for (const p of room.players.values()) {
     const s = p.sim;
-    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0) | (s.ultT > 0 ? 256 : 0) | (s.ult === 1 ? 512 : 0) | (s.mon > 0 ? 1024 : 0) | (s.monT > 0 ? 2048 : 0);
+    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0) | (s.ultT > 0 ? 256 : 0) | (s.ult === 1 ? 512 : 0) | (s.mon > 0 ? 1024 : 0) | (s.monT > 0 ? 2048 : 0) | (s.guard ? 4096 : 0) | (s.stag > 0 ? 8192 : 0) | (s.crash === 1 ? 16384 : 0) | (s.crashT > 0 ? 32768 : 0);
     others.push([p.id, r3(s.x), r3(s.y), r3(s.z), r3(s.yaw), r3(s.pitch), flags, r3(s.vx), r3(s.vz)]);
   }
   for (const p of room.players.values()) {
@@ -578,6 +620,7 @@ io.on('connection', socket => {
     if (d.place) { Object.assign(p.sim, { x: +d.place.x || 0, y: 0, z: +d.place.z || 0, vx: 0, vz: 0, yaw: +d.place.yaw || 0 }); p.teleported = true; p.history = []; }
     if (d.grant) Sim.grantShotgun(p.sim);
     if (d.ult) p.sim.ult = 1;
+    if (d.crash) p.sim.crash = 1;
     if (d.mon) { p.sim.monT = d.mon === 'rise' ? Sim.MON_RISE_TICKS : 2; io.to(room.code).emit('monRise', { id: p.id }); }
     if (d.protect === false) p.protectUntil = 0;
   });

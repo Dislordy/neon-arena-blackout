@@ -307,7 +307,7 @@ export class Avatar {
       for (const A of [this.warden.armL, this.warden.armR]) A.sh.scale.set(1.2, 1.12, 1.2); // long, heavy brute arms
       this.onStomp = null; // set by the game: dust ring + thud when the Warden stomps, lands or smashes
     }
-    this.gunMode = !knight; this.swingT = -1; this.swingSide = 1;
+    this.gunMode = !knight; this.swingT = -1; this.swingSide = 1; this.slamT = -1; this.guardHitT = -1;
 
     // shield bubble, x-ray ghost, name tag
     this.shield = new THREE.Mesh(new THREE.SphereGeometry(1, 32, 20), shieldShader(this.color));
@@ -428,6 +428,7 @@ export class Avatar {
       this.torso.rotation.y += cut * 0.45 * this.swingSide - up * 0.2 * this.swingSide;
       if (this.swingT >= 1) { this.swingT = -1; this.setPose('sword'); }
     }
+    if (this.cls === 2) this.updateKnight(dt, st);
     // cloth streams back with speed (forward motion only) and flutters in the wind
     const capeTarget = Math.min(1, Math.max(0, fwd) / 6 + Math.abs(side) / 12) + (st.dash ? 0.8 : 0) + this.airBlend * 0.4;
     this.uniforms.uSpeed.value += (capeTarget - this.uniforms.uSpeed.value) * (1 - Math.exp(-dt * 4));
@@ -442,7 +443,7 @@ export class Avatar {
     // Obliteration Beam ready: the runner's lights throb; while charging they blaze
     const ult = st.charging ? 4 + Math.random() * 2 : st.ultReady ? 1.2 + Math.sin(this.time * 6) * 1.0 : 0;
     this.glow.color.copy(this.color).multiplyScalar(3 * prot + (st.protect ? 1 : 0) + fl * 3 + ult);
-    if (this.ember) this.ember.color.setRGB(2.4, 0.86, 0.29).multiplyScalar(1 + Math.sin(this.time * 4) * 0.12 + (this.surge = Math.max(0, (this.surge || 0) - dt * 1.5)) * 2);
+    if (this.ember) this.ember.color.setRGB(2.4, 0.86, 0.29).multiplyScalar(1 + Math.sin(this.time * 4) * 0.12 + (this.surge = Math.max(0, (this.surge || 0) - dt * 1.5)) * 2 + (this.blazing ? 2.2 + Math.sin(this.time * 9) * 0.7 : 0));
   }
   /**
    * Rune-Warden: runes crawl over the soldier (he hunches and convulses), then a hulking brute bursts out —
@@ -677,6 +678,40 @@ export class Avatar {
     C.halo.scale.setScalar(1.25 * sm(seg(age, 0.15, 0.6)) * (1 - shrink));
     C.runeMat.emissiveIntensity = (2.2 + roar * 3 + ad * 5 + Math.sin(this.time * 3) * 0.4) * (1 - shrink * 0.85);
     C.glow.color.setRGB(3, 0.35, 0.45).multiplyScalar((1 + Math.sin(this.time * 4) * 0.2 + roar + ad * 2) * (1 - shrink * 0.8));
+  }
+  /** Knight: Ashen Guard (blade raised across the body), parry/block jolts, stagger, and the Cinder Crash leap + slam. */
+  updateKnight(dt, st) {
+    const ease = k => 1 - Math.exp(-dt * k);
+    this.guardK = (this.guardK || 0) + ((st.guard ? 1 : 0) - (this.guardK || 0)) * ease(14);
+    this.stagK = (this.stagK || 0) + ((st.stag ? 1 : 0) - (this.stagK || 0)) * ease(10);
+    this.leapK = (this.leapK || 0) + ((st.crashing ? 1 : 0) - (this.leapK || 0)) * ease(9);
+    this.blazing = !!(st.crashReady || st.crashing);
+    let slam = 0;
+    if (this.slamT >= 0) { this.slamT += dt; slam = Math.min(1, this.slamT / 0.08) * (1 - Math.max(0, (this.slamT - 0.45) / 0.35)); if (this.slamT > 0.8) this.slamT = -1; }
+    let jolt = 0;
+    if (this.guardHitT >= 0) { this.guardHitT += dt; jolt = Math.exp(-this.guardHitT * 10) * (this.guardHitParry ? 1.4 : 1); if (this.guardHitT > 0.5) this.guardHitT = -1; }
+    // stagger: reeling back, arms flung loose
+    this.torso.rotation.x -= this.stagK * (0.4 + Math.sin(this.time * 9) * 0.08); this.head.rotation.x -= this.stagK * 0.3;
+    this.torso.rotation.z += this.stagK * Math.sin(this.time * 6) * 0.12;
+    if (this.gunMode || this.swingT >= 0) return;
+    const S = this.poses.sword, G = this.knightGuard || (this.knightGuard = { r: [1.45, 0.2, -1.15, 1.25], l: [1.35, 0, 0.95, 1.05] });
+    const U = { r: [2.9, 0, -0.25, 0.25], l: [2.6, 0, 0.3, 0.3] }, D = { r: [0.75, 0, -0.1, 0.1], l: [0.7, 0, 0.1, 0.1] };
+    const mix = (k) => { const out = []; for (let i = 0; i < 4; i++) out[i] = S.r[i] + (G.r[i] - S.r[i]) * this.guardK + (U.r[i] - S.r[i]) * this.leapK * (1 - slam) + (D.r[i] - S.r[i]) * slam; return out; };
+    const r = mix(), l = []; for (let i = 0; i < 4; i++) l[i] = S.l[i] + (G.l[i] - S.l[i]) * this.guardK + (U.l[i] - S.l[i]) * this.leapK * (1 - slam) + (D.l[i] - S.l[i]) * slam;
+    r[0] -= jolt * 0.35; r[3] -= jolt * 0.3; l[0] -= jolt * 0.3;
+    r[0] += this.stagK * 0.5; r[2] -= this.stagK * 0.6; l[2] += this.stagK * 0.7;
+    this.rArm.sh.rotation.set(r[0], r[1], r[2]); this.rArm.el.rotation.x = r[3];
+    this.lArm.sh.rotation.set(l[0], l[1], l[2]); this.lArm.el.rotation.x = l[3];
+    this.torso.rotation.x += slam * 0.6 - this.leapK * 0.25; this.hips.position.y -= slam * 0.25;
+  }
+  /** Cinder Crash landing: the blade comes down. */
+  slam() { this.slamT = 0; }
+  /** A hit taken on the guard (parry = a sharper jolt). */
+  guardHit(parry) { this.guardHitT = 0; this.guardHitParry = !!parry; }
+  /** World position along the greatsword's blade (for ember trails). */
+  bladeWorld(out = new THREE.Vector3()) {
+    if (!this.sword) return out.copy(this.group.position).setY(this.group.position.y + 1.3);
+    this.group.updateMatrixWorld(true); return this.sword.localToWorld(out.set(0, 0.75, 0));
   }
   /** Ember flare when the sword transforms. */
   flare() { this.surge = 1; }

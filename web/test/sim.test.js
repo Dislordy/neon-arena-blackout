@@ -271,4 +271,37 @@ test('the monster is bigger: its hitbox is scaled up', () => {
   assert.ok(hit, 'the monster is hit up there');
 });
 
+test('knight guard: slows you, only blocks the front, parry window only on a fresh raise', () => {
+  const p = Sim.newPlayerState(-12, -24, 2);
+  for (let i = 0; i < 60; i++) Sim.stepPlayer(p, input({ mz: 1, b: Sim.BTN.ADS }));
+  assert.ok(p.guard === 1 && p.guardT > Sim.PARRY_TICKS);
+  assert.ok(Math.hypot(p.vx, p.vz) < Sim.CLASSES[2].speed * Sim.GUARD_SLOW + 0.1, 'guard slows');
+  assert.ok(Sim.guardBlocks(p, p.x, p.z - 10), 'blocks from the front');
+  assert.ok(!Sim.guardBlocks(p, p.x, p.z + 10), 'not from behind');
+  let swung = false; for (let i = 0; i < 40; i++) if (Sim.stepPlayer(p, input({ b: Sim.BTN.ADS | Sim.BTN.FIRE })).swing) swung = true;
+  assert.ok(!swung, 'no swinging while guarding');
+  Sim.stepPlayer(p, input()); assert.strictEqual(p.guard, 0);
+  Sim.stepPlayer(p, input({ b: Sim.BTN.ADS })); assert.ok(p.guardT > Sim.PARRY_TICKS, 'spam-raise: no parry window');
+  for (let i = 0; i < Sim.GUARD_RAISE_CD + 2; i++) Sim.stepPlayer(p, input());
+  Sim.stepPlayer(p, input({ b: Sim.BTN.ADS })); assert.ok(p.guardT <= Sim.PARRY_TICKS, 'fresh raise: parry window');
+});
+
+test('stagger blocks attacks and dashes', () => {
+  const p = Sim.newPlayerState(-12, -24, 2); p.stag = 10;
+  const ev = Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE | Sim.BTN.DASH }));
+  assert.ok(!ev.swing && !ev.dash);
+});
+
+test('cinder crash: the next attack leaps ~10 m forward and slams down', () => {
+  const p = Sim.newPlayerState(-12, -24, 2); p.crash = 1;
+  for (let i = 0; i < 5; i++) Sim.stepPlayer(p, input());
+  const z0 = p.z; let start = false, land = false, n = 0;
+  if (Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })).crashStart) start = true;
+  while (!land && n++ < 200) if (Sim.stepPlayer(p, input()).crashLand) land = true;
+  assert.ok(start && land, 'leap and land');
+  assert.ok(z0 - p.z > 7 && z0 - p.z < 14, 'leap distance ' + (z0 - p.z).toFixed(2));
+  assert.strictEqual(p.crash, 0);
+  assert.strictEqual(Sim.crashDamage(0), Sim.CRASH_DAMAGE_MAX); assert.strictEqual(Sim.crashDamage(Sim.CRASH_RADIUS + 0.1), 0);
+});
+
 console.log(`sim: ${passed} passed`);

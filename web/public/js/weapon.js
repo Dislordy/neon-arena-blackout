@@ -192,6 +192,7 @@ export class Weapon {
     this.adsSniper = new THREE.Vector3(0, -this.sn.scopeY, -0.2);
     this.sniperRig.visible = false;
     this.boltT = -1; this.charge = 0;
+    this.guardK = 0; this.leapK = 0; this.slamT = -1; this.joltT = -1; this.joltK = 1; this.guarding = false; this.leaping = false;
     // ---- Rune-Warden: your own monstrous forearms (borrowed from the third-person model)
     this.clawRig = new THREE.Group(); this.root.add(this.clawRig);
     const w = buildWarden();
@@ -233,6 +234,13 @@ export class Weapon {
     if (mode === 'claws') { this.clawIntro = 0; this.clawN = 0; }
     if (prev !== 'rifle' || mode !== 'rifle') { this.equip = 0; if (mode === 'shotgun' || prev === 'shotgun') this.surge = 1; }
   }
+
+  /** Knight: a hit landed on your guard (parry = a sharp ring and a bigger jolt). */
+  guardHit(parry) { this.joltT = 0; this.joltK = parry ? 1.5 : 1; if (parry) this.surge = 1; }
+  /** Cinder Crash: blade overhead for the leap... */
+  crashLeap() { this.leaping = true; this.surge = 1; }
+  /** ...and down into the street. */
+  slam() { this.leaping = false; this.slamT = 0; this.landY.kick(-1.2); this.surge = 1; }
 
   /** Greatsword swing (alternates forehand / backhand). */
   swing() {
@@ -346,7 +354,9 @@ export class Weapon {
     this.arc.color.copy(this.arcBase).multiplyScalar(1 + this.charge * 5 + (s.ultReady ? 0.6 + Math.sin(performance.now() * 0.008) * 0.4 : 0));
     // ember glow surges on transformation and shotgun blasts
     this.surge = Math.max(0, this.surge - dt * 1.8);
-    this.ember.color.copy(this.emberBase).multiplyScalar(1 + this.surge * 2.5 + Math.sin(performance.now() * 0.005) * 0.1);
+    this.ember.color.copy(this.emberBase).multiplyScalar(1 + this.surge * 2.5 + Math.sin(performance.now() * 0.005) * 0.1 + (s.blaze ? 2.2 + Math.sin(performance.now() * 0.012) * 0.7 : 0));
+    this.guarding = !!s.guard && this.mode === 'sword'; this.knightDt = dt;
+    if (!s.blaze) this.leaping = false;
 
     const base = new THREE.Vector3().lerpVectors(this.hip, this.mode === 'shotgun' ? this.adsShotgun : this.mode === 'sniper' ? this.adsSniper : this.ads, ease(this.aim));
     if (this.charge > 0) { const k = this.charge * 0.006; base.x += (Math.random() - 0.5) * k; base.y += (Math.random() - 0.5) * k; base.z += 0.04 * this.charge; }
@@ -435,6 +445,21 @@ export class Weapon {
       this.slashArc.rotation.set(0.15, 0, 0);
       this.slashArc.scale.set(this.swingDir > 0 ? 1 : -1, 1, 1);
       if (this.swingT >= 1) { this.swingT = -1; this.slashArc.visible = false; }
+    }
+    // Knight: guard (blade across the body), parry/block jolt, Cinder Crash leap (blade overhead) and slam
+    const kd = this.knightDt || 0, ek = k => 1 - Math.exp(-kd * k);
+    this.guardK += ((this.guarding ? 1 : 0) - this.guardK) * ek(16);
+    this.leapK += ((this.leaping ? 1 : 0) - this.leapK) * ek(10);
+    let slam = 0;
+    if (this.slamT >= 0) { this.slamT += kd; slam = Math.min(1, this.slamT / 0.07) * (1 - Math.max(0, (this.slamT - 0.35) / 0.3)); if (this.slamT > 0.65) this.slamT = -1; }
+    let jolt = 0;
+    if (this.joltT >= 0) { this.joltT += kd; jolt = Math.exp(-this.joltT * 12) * this.joltK; if (this.joltT > 0.4) this.joltT = -1; }
+    if (this.swingT < 0) {
+      const G = [-0.06, 0.07, -0.06, -0.2, 0.25, 1.45], U = [0.0, 0.2, 0.06, 0.55, 0.0, 0.25], D = [-0.06, -0.08, -0.16, -1.8, 0.0, 0.1];
+      v = v.map((x, j) => x + (G[j] - x) * this.guardK);
+      v = v.map((x, j) => x + (U[j] - x) * this.leapK * (1 - slam));
+      v = v.map((x, j) => x + (D[j] - x) * slam);
+      v = v.slice(); v[1] -= jolt * 0.05; v[2] += jolt * 0.06; v[3] += jolt * 0.25; v[5] += (Math.random() - 0.5) * jolt * 0.1;
     }
     P.position.set(this.swordHome.x + v[0], this.swordHome.y + v[1], this.swordHome.z + v[2]);
     P.rotation.set(v[3], v[4], v[5]);

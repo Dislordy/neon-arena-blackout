@@ -398,6 +398,39 @@ const designs = {
     for (let k = 0; k < 4; k++) mixInto(out, env(hp(noise(Math.round(sr * 0.02), 751 + k), 3000, sr), sr, t => Math.exp(-t * 300)), 0.3, Math.round(sr * (0.08 + k * 0.045)));
     return fadeEdges(normalize(out, 0.8), sr);
   },
+  /** Knight parry: a bright, ringing steel-on-steel clash with a spray of sparks. */
+  parry(sr) {
+    const n = Math.round(sr * 1.3), out = partials(n, sr, [1180, 1967, 2741, 3710, 5120], [3.2, 4, 5.5, 7, 9], [1, 0.7, 0.5, 0.35, 0.2]);
+    mixInto(out, env(hp(noise(Math.round(sr * 0.06), 760), 2500, sr), sr, t => Math.exp(-t * 90)), 1.2);
+    for (let k = 0; k < 7; k++) mixInto(out, env(hp(noise(Math.round(sr * 0.012), 761 + k), 5000, sr), sr, t => Math.exp(-t * 400)), 0.25, Math.round(sr * (0.03 + k * 0.035 + (k % 3) * 0.01)));
+    return fadeEdges(normalize(out, 0.85), sr);
+  },
+  /** A hit taken on the raised greatsword: a dull, heavy clang. */
+  guardBlock(sr) {
+    const n = Math.round(sr * 0.45), out = partials(n, sr, [340, 617, 1045], [9, 13, 18], [1, 0.5, 0.3]);
+    mixInto(out, env(lp(noise(n, 770), 1800, sr), sr, t => Math.exp(-t * 40)), 0.9);
+    return fadeEdges(normalize(softclip(out, 1.4), 0.7), sr);
+  },
+  /** The greatsword ignites (Cinder Crash ready): a flare of flame and a low growl. */
+  crashReady(sr) {
+    const n = Math.round(sr * 1.1), out = env(lp(noise(n, 780), 2600, sr), sr, t => Math.min(1, t * 6) * Math.exp(-t * 2.2));
+    mixInto(out, sweepSine(n, sr, 60, 95, 2, { k: 0.5, shape: 'saw' }), 0.35);
+    return fadeEdges(normalize(out, 0.7), sr);
+  },
+  /** The leap: a roaring rush of flame rising in pitch. */
+  crashLeap(sr) {
+    const n = Math.round(sr * 0.9), out = env(hp(noise(n, 790), 500, sr), sr, t => Math.sin(Math.min(1, t / 0.9) * Math.PI) * 0.9);
+    mixInto(out, sweepSine(n, sr, 90, 220, 1.5, { k: 0.3, shape: 'saw' }), 0.3);
+    return fadeEdges(normalize(lp(out, 4500, sr), 0.75), sr);
+  },
+  /** The slam: a deep boom, cracking stone and falling rubble. */
+  crashImpact(sr) {
+    const n = Math.round(sr * 2.2), out = sweepSine(n, sr, 70, 28, 2.2);
+    mixInto(out, env(lp(noise(n, 800), 900, sr), sr, t => Math.exp(-t * 3.2)), 1.4);
+    mixInto(out, env(hp(noise(Math.round(sr * 0.08), 801), 1200, sr), sr, t => Math.exp(-t * 60)), 1.0);
+    for (let k = 0; k < 14; k++) mixInto(out, env(hp(lp(noise(Math.round(sr * 0.03), 802 + k), 1300 + (k % 5) * 500, sr), 700 + (k % 5) * 300, sr), sr, t => Math.exp(-t * 120)), 0.3 * (1 - k / 16), Math.round(sr * (0.25 + k * 0.09 + (k % 3) * 0.03)));
+    return fadeEdges(normalize(softclip(out, 2), 0.95), sr);
+  },
   /** Bullet absorbed by an energy shield: soft electric thud. */
   shieldHit(sr) {
     const n = Math.round(sr * 0.16), out = sweepSine(n, sr, 900, 300, 30, { k: 1.2 });

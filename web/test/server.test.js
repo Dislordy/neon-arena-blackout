@@ -302,6 +302,59 @@ async function test(name, fn) {
     assert.strictEqual(pa.hp, Math.max(1, Math.round(hpBefore / Sim.MON_HP * 100)));
   });
 
+  await test('knight: guard blocks, a parry staggers and sets up a double-damage riposte, 4 kills -> Cinder Crash', async () => {
+    const guards = []; a.sock.on('guard', g => guards.push(g)); const ready = []; a.sock.on('crashReady', x => ready.push(x));
+    const crashes = []; b.sock.on('crash', x => crashes.push(x));
+    room.fireZone = null; pa.riposteUntil = 0;
+    await Promise.all([a.stream(170, {}), b.stream(170, {})]);   // both alive again
+    // guard (held long enough that it is no parry): B's rifle shots do a quarter damage
+    place(pa, -12, -36, Math.PI, 2); place(pb, -12, -26, 0, 0); pa.shield = 0;
+    await wait(80);
+    const hurts = []; a.sock.on('hurt', h => hurts.push(h));
+    await a.stream(30, { yaw: Math.PI, b: Sim.BTN.ADS });
+    assert.ok(pa.sim.guard === 1 && pa.sim.guardT > Sim.PARRY_TICKS, 'guard raised');
+    const pitchB = Math.atan2(1.15 - Sim.EYE_HEIGHT, 10);
+    await Promise.all([b.stream(24, { yaw: 0, pitch: pitchB, b: Sim.BTN.FIRE }), a.stream(24, { yaw: Math.PI, b: Sim.BTN.ADS })]);
+    await wait(120);
+    const blocked = hurts.filter(h => h.w === 'rifle');
+    assert.ok(blocked.length >= 1 && blocked.every(h => h.d <= Math.ceil(Sim.damageFor('head', 10, false) * Sim.GUARD_FACTOR) + 1), 'guarded hurts ' + blocked.map(h => h.d));
+    assert.ok(guards.some(g => g.id === a.sock.id && !g.parry), 'block event');
+    // parry: B (now a knight) swings into A's freshly raised guard -> no damage, B reels, A's next swing does double
+    place(pa, -12, -36, Math.PI, 2); place(pb, -12, -34, 0, 2); pa.shield = 0;
+    pa.sim.guard = 1; pa.sim.guardT = 2; pa.guardAt = require('perf_hooks').performance.now() + 120; // just raised
+    await wait(80);
+    const hp0 = pa.hp, pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 2);
+    b.send(1, { yaw: 0, pitch, b: Sim.BTN.FIRE });
+    await wait(150);
+    assert.strictEqual(pa.hp, hp0, 'parried: no damage');
+    assert.ok(guards.some(g => g.id === a.sock.id && g.parry && g.stag), 'parry + stagger event');
+    assert.ok(pb.sim.stag > 0, 'attacker staggered');
+    assert.ok(pa.riposteUntil > require('perf_hooks').performance.now(), 'riposte primed');
+    a.hits.length = 0;
+    a.send(2, { yaw: Math.PI, pitch, b: Sim.BTN.FIRE });
+    await wait(150);
+    assert.ok(a.hits.some(h => h.w === 'sword' && h.d === Sim.SWORD_DAMAGE * 2), 'riposte hit ' + a.hits.map(h => h.d));
+    // 4 kills in a row arm the Cinder Crash
+    place(pa, -12, -34, 0, 2); place(pb, -12, -36, Math.PI, 0); pb.hp = 1; pb.shield = 0;
+    pa.streak = Sim.CRASH_STREAK - 1;
+    await wait(80);
+    await a.stream(20, { yaw: 0, pitch, b: Sim.BTN.FIRE });
+    await wait(120);
+    assert.ok(!pb.sim.alive, 'fourth kill');
+    assert.ok(ready.some(r => r.id === a.sock.id) && pa.sim.crash === 1, 'crash ready');
+    // the leap: lands ~10 m ahead and hurls/hurts whoever is near
+    await b.stream(170, {});
+    place(pb, -12, -41, Math.PI, 0); pb.shield = 0;
+    const crashed = pa.sim; Object.assign(crashed, { x: -12, z: -31, vx: 0, vz: 0, fireCd: 0, wpn: 0, og: true }); pa.history = [];
+    const bh = []; b.sock.on('hurt', h => bh.push(h));
+    await Promise.all([a.stream(90, { yaw: 0, b: Sim.BTN.FIRE }), b.stream(90, {})]);
+    await wait(150);
+    assert.ok(crashes.some(c => c.id === a.sock.id), 'crash landed');
+    assert.strictEqual(pa.sim.crash, 0, 'used up');
+    const ch = bh.find(h => h.w === 'crash');
+    assert.ok(ch && ch.d >= Sim.CRASH_DAMAGE_MIN, 'shockwave damage ' + (ch && ch.d));
+  });
+
   a.sock.close(); b.sock.close();
   console.log(`server: ${passed} passed`);
   setTimeout(() => process.exit(process.exitCode || 0), 50);
