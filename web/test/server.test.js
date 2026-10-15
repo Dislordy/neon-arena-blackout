@@ -269,6 +269,39 @@ async function test(name, fn) {
     assert.strictEqual(room.clash, null);
   });
 
+  await test('soldier: 3 kills in a row -> Rune-Warden (250 HP, claws, adaptation), then back after 20 s', async () => {
+    const rise = []; a.sock.on('monRise', x => rise.push(x)); const adapts = []; b.sock.on('adapt', x => adapts.push(x));
+    room.fireZone = null;
+    await Promise.all([a.stream(170, {}), b.stream(170, {})]);
+    place(pa, -12, -26, 0, 0); place(pb, -12, -36, Math.PI, 0);
+    pa.streak = Sim.MON_STREAK - 1;
+    await wait(80);
+    const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 10);
+    await a.stream(70, { yaw: 0, pitch, b: Sim.BTN.FIRE });
+    await wait(120);
+    assert.ok(!pb.sim.alive, 'third kill');
+    assert.ok(rise.some(r => r.id === a.sock.id), 'runes awaken');
+    await a.stream(Sim.MON_RISE_TICKS + 10, { yaw: 0 });
+    await wait(100);
+    assert.ok(pa.sim.mon > 0, 'monster form');
+    assert.strictEqual(pa.hp, Sim.MON_HP);
+    // B (respawned) shoots the monster: the same weapon does less each time
+    await b.stream(170, {});
+    place(pb, -12, -36, Math.PI, 0); pa.protectUntil = 0; pa.shield = 0; pa.sim.x = -12; pa.sim.z = -26; pa.sim.vx = pa.sim.vz = 0; pa.history = [];
+    const hurts = []; a.sock.on('hurt', h => hurts.push(h.d));
+    const pitchB = Math.atan2(1.15 * Sim.MON_SCALE - Sim.EYE_HEIGHT, 10);
+    await Promise.all([b.stream(70, { yaw: Math.PI, pitch: pitchB, b: Sim.BTN.FIRE }), a.stream(70, { yaw: 0 })]);
+    await wait(120);
+    assert.ok(hurts.length >= 3, 'hurts ' + hurts);
+    assert.ok(hurts[0] > hurts[1] && hurts[1] > hurts[2], 'adapting: ' + hurts);
+    assert.ok(adapts.length >= 3 && adapts[0].w === 'rifle');
+    // the 20 s run out (shortened here): back to a soldier, health scaled down
+    pa.sim.mon = 3; const hpBefore = pa.hp;
+    await a.stream(10, {}); await wait(100);
+    assert.strictEqual(pa.sim.mon, 0);
+    assert.strictEqual(pa.hp, Math.max(1, Math.round(hpBefore / Sim.MON_HP * 100)));
+  });
+
   a.sock.close(); b.sock.close();
   console.log(`server: ${passed} passed`);
   setTimeout(() => process.exit(process.exitCode || 0), 50);

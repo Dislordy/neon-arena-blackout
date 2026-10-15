@@ -67,7 +67,7 @@ function publicMeta(p) {
 }
 const validClass = c => (Number.isInteger(c) && Sim.CLASSES[c] ? c : 0);
 /** Full health + shield for the player's class. */
-function refill(p) { const C = Sim.classOf(p.sim); p.hp = C.hp; p.shield = C.shield; p.hurtAt = 0; }
+function refill(p) { const C = Sim.classOf(p.sim); p.hp = C.hp; p.shield = C.shield; p.hurtAt = 0; p.adapt = {}; }
 function metaState(room) {
   return {
     code: room.code, phase: room.phase, host: room.hostId,
@@ -139,20 +139,20 @@ function cleanRoom(code) {
 // ------------------------------------------------------- lag compensation
 function recordHistory(room, t) {
   for (const p of room.players.values()) {
-    p.history.push({ t, x: p.sim.x, y: p.sim.y, z: p.sim.z, alive: p.sim.alive });
+    p.history.push({ t, x: p.sim.x, y: p.sim.y, z: p.sim.z, alive: p.sim.alive, s: Sim.scaleOf(p.sim) });
     while (p.history.length && p.history[0].t < t - HISTORY_MS) p.history.shift();
   }
 }
 /** Where was this player at server time t? (linear interpolation of history) */
 function positionAt(p, t) {
   const h = p.history;
-  if (!h.length || t >= h[h.length - 1].t) return { x: p.sim.x, y: p.sim.y, z: p.sim.z, alive: p.sim.alive };
+  if (!h.length || t >= h[h.length - 1].t) return { x: p.sim.x, y: p.sim.y, z: p.sim.z, alive: p.sim.alive, s: Sim.scaleOf(p.sim) };
   if (t <= h[0].t) return h[0];
   for (let i = h.length - 1; i > 0; i--) {
     const a = h[i - 1], b = h[i];
     if (t >= a.t) {
       const k = (t - a.t) / (b.t - a.t || 1);
-      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, alive: a.alive && b.alive };
+      return { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k, z: a.z + (b.z - a.z) * k, alive: a.alive && b.alive, s: k < 0.5 ? a.s : b.s };
     }
   }
   return h[0];
@@ -189,7 +189,13 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
     return false;
   }
   const hardened = target.shieldUntil > t;
-  const dmg = raw;
+  let dmg = raw;
+  // Rune-Warden adaptation: every hit from the same weapon type does 15% less the next time (up to 60%)
+  if (target.sim.mon > 0) {
+    const key = weapon || 'rifle', n = (target.adapt[key] || 0);
+    dmg = Math.max(1, Math.round(dmg * (1 - Sim.ADAPT_STEP * n)));
+    if (n < Sim.ADAPT_MAX) { target.adapt[key] = n + 1; io.to(room.code).emit('adapt', { id: target.id, w: key, n: n + 1 }); }
+  }
   const absorbed = Math.min(target.shield, dmg);
   const hadShield = target.shield > 0;
   target.shield -= absorbed;
@@ -211,7 +217,14 @@ function applyDamage(room, shooter, target, raw, part, point, weapon) {
       io.to(room.code).emit('ultReady', { id: shooter.id });
       addFeed(room, `${shooter.name} has the OBLITERATION BEAM`, 'kill');
     }
-    const how = weapon === 'beam' ? '✦ OBLITERATED' : weapon === 'fire' ? '🔥 burned' : weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
+    // Soldier: 3 kills in a row awaken the runes -> Rune-Warden
+    if (Sim.classOf(shooter.sim).key === 'soldier' && shooter.sim.alive && shooter.streak >= Sim.MON_STREAK && !shooter.sim.mon && !shooter.sim.monT) {
+      shooter.sim.monT = Sim.MON_RISE_TICKS; shooter.streak = 0;
+      io.to(room.code).emit('monRise', { id: shooter.id });
+      addFeed(room, `${shooter.name}'s runes awaken`, 'kill');
+    }
+    target.adapt = {};
+    const how = weapon === 'beam' ? '✦ OBLITERATED' : weapon === Sim.WEAPON.CLAWS ? '☬ torn apart by' : weapon === 'fire' ? '🔥 burned' : weapon === Sim.WEAPON.SWORD ? '⚔' : weapon === Sim.WEAPON.SHOTGUN ? '✸' : part === 'head' ? '⊕ headshot' : '▸';
     addFeed(room, `${shooter.name} ${how} ${target.name}`, 'kill');
     io.to(room.code).emit('killed', { killer: shooter.id, victim: target.id, head: part === 'head', w: weapon, pos: [r3(target.sim.x), r3(target.sim.y), r3(target.sim.z)] });
     // knight reward: the greatsword transforms into a shotgun
@@ -362,7 +375,7 @@ function handleShotgun(room, shooter, input) {
 }
 
 /** Greatsword swing: hits the closest enemy inside the swing cone (lag compensated, blocked by walls). */
-function handleSwing(room, shooter, viewTime) {
+function handleSwing(room, shooter, viewTime, claws = false) {
   const t = now();
   const s = shooter.sim;
   const eye = Sim.eyeOf(s);
@@ -373,16 +386,17 @@ function handleSwing(room, shooter, viewTime) {
     if (target === shooter || !target.sim.alive) continue;
     const pos = positionAt(target, rewindT);
     if (!pos.alive) continue;
-    const hit = Sim.swordReach(eye, dir, pos);
+    const hit = Sim.swordReach(eye, dir, pos, claws);
     if (!hit) continue;
     const d = { x: (hit.point.x - eye.x) / hit.t, y: (hit.point.y - eye.y) / hit.t, z: (hit.point.z - eye.z) / hit.t };
     const wall = Sim.raycastWorld(eye, d, hit.t);
     if (wall && wall.t < hit.t - 0.3) continue;
     if (!best || hit.t < best.t) best = { target, ...hit };
   }
-  io.to(room.code).except(shooter.id).emit('swing', { id: shooter.id, h: best ? best.target.id : null, p: best ? v3(best.point) : null });
+  const weapon = claws ? Sim.WEAPON.CLAWS : Sim.WEAPON.SWORD;
+  io.to(room.code).except(shooter.id).emit('swing', { id: shooter.id, h: best ? best.target.id : null, p: best ? v3(best.point) : null, c: claws });
   if (!best) return;
-  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, Sim.WEAPON.SWORD), best.part, best.point, Sim.WEAPON.SWORD);
+  applyDamage(room, shooter, best.target, Sim.damageFor(best.part, best.t, best.target.shieldUntil > t, weapon), best.part, best.point, weapon);
 }
 const r3 = v => Math.round(v * 1000) / 1000;
 
@@ -412,7 +426,9 @@ function tickRoom(room) {
       else if (ev.fire) handleShot(room, p, input, ev);
       if (ev.ultStart) io.to(room.code).except(p.id).emit('ultCharge', { id: p.id });
       if (ev.ultFire) handleBeam(room, p);
-      if (ev.swing) handleSwing(room, p, input.vt);
+      if (ev.swing) handleSwing(room, p, input.vt, !!ev.claw);
+      if (ev.monStart) { p.hp = Sim.MON_HP; p.shield = Sim.classOf(p.sim).shield; p.adapt = {}; io.to(room.code).emit('monStart', { id: p.id }); emitMeta(room); }
+      if (ev.monEnd) { p.hp = Math.max(1, Math.round(p.hp / Sim.MON_HP * Sim.classOf(p.sim).hp)); p.adapt = {}; io.to(room.code).emit('monEnd', { id: p.id }); emitMeta(room); }
       if (ev.sheathe) io.to(room.code).emit('sheathe', { id: p.id });
     }
     // energy shield refills after a few seconds without taking damage
@@ -434,7 +450,7 @@ function sendSnapshots(room, t) {
   const others = [];
   for (const p of room.players.values()) {
     const s = p.sim;
-    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0) | (s.ultT > 0 ? 256 : 0) | (s.ult === 1 ? 512 : 0);
+    const flags = (s.alive ? 1 : 0) | (p.shieldUntil > t ? 2 : 0) | (s.reload > 0 ? 4 : 0) | (s.og ? 8 : 0) | (s.dashT > 0 ? 16 : 0) | (t < p.protectUntil ? 32 : 0) | (s.wpn ? 64 : 0) | (p.shield > 0 ? 128 : 0) | (s.ultT > 0 ? 256 : 0) | (s.ult === 1 ? 512 : 0) | (s.mon > 0 ? 1024 : 0) | (s.monT > 0 ? 2048 : 0);
     others.push([p.id, r3(s.x), r3(s.y), r3(s.z), r3(s.yaw), r3(s.pitch), flags, r3(s.vx), r3(s.vz)]);
   }
   for (const p of room.players.values()) {
@@ -562,6 +578,7 @@ io.on('connection', socket => {
     if (d.place) { Object.assign(p.sim, { x: +d.place.x || 0, y: 0, z: +d.place.z || 0, vx: 0, vz: 0, yaw: +d.place.yaw || 0 }); p.teleported = true; p.history = []; }
     if (d.grant) Sim.grantShotgun(p.sim);
     if (d.ult) p.sim.ult = 1;
+    if (d.mon) { p.sim.monT = d.mon === 'rise' ? Sim.MON_RISE_TICKS : 2; io.to(room.code).emit('monRise', { id: p.id }); }
     if (d.protect === false) p.protectUntil = 0;
   });
 

@@ -45,7 +45,7 @@
   // Every runner has health + a regenerating energy shield that soaks damage first.
   const SHIELD_REGEN_DELAY_MS = 3500;   // no damage for this long -> shield starts refilling
   const SHIELD_REGEN_PER_S = 25;
-  const WEAPON = { RIFLE: 'rifle', SWORD: 'sword', SHOTGUN: 'shotgun', SNIPER: 'sniper' };
+  const WEAPON = { RIFLE: 'rifle', SWORD: 'sword', SHOTGUN: 'shotgun', SNIPER: 'sniper', CLAWS: 'claws' };
   const CLASSES = [
     { id: 0, key: 'soldier', name: 'SOLDIER', hp: 100, shield: 50, speed: MOVE_SPEED, dashes: 1, dashRecharge: DASH_COOLDOWN_TICKS, dashGap: 0, weapon: WEAPON.RIFLE },
     // sniper rifle + three dash charges that refill one at a time; 5 kills in a row charge the Obliteration Beam
@@ -83,6 +83,20 @@
   const FIRE_ZONE_MS = 15000;          // the half of the alley the beam went into burns this long
   const FIRE_DPS = 20;
   const FIRE_HEIGHT = 1.5;             // standing above this (fire escapes, bridges) keeps you out of the flames
+  // Soldier: 3 kills in a row -> runes crawl over the body -> the Rune-Warden (monster form) for 20 s
+  const MON_STREAK = 3;
+  const MON_RISE_TICKS = 90;           // 1.5 s transformation (slowed, can't attack)
+  const MON_TICKS = 20 * TICK_RATE;    // 20 s as the monster
+  const MON_HP = 250;
+  const MON_SPEED = 7.4;
+  const MON_JUMP = 9.2;                // ~2.2 m jumps
+  const MON_SCALE = 1.35;              // bigger body = bigger hitboxes
+  const CLAW_TICKS = 30;               // 0.5 s per slash
+  const CLAW_RANGE = 3.4;
+  const CLAW_ARC_COS = Math.cos(0.9);  // ~50 degree half-angle
+  const CLAW_DAMAGE = 85;
+  const CLAW_LUNGE = 5;
+  const ADAPT_STEP = 0.15, ADAPT_MAX = 4; // each hit from the same weapon type: 15% less next time, up to 60%
   // Beam clash: two beams meet -> quick cutscene + W/A/S/D quick-time duel
   const CLASH_INTRO_MS = 1200;         // cutscene intro before keys count
   const CLASH_QTE_MS = 5000;           // time to hit as many keys of the sequence as you can
@@ -223,13 +237,15 @@
     return {
       x, y: 0, z, vx: 0, vy: 0, vz: 0, yaw: 0, pitch: 0, og: true, alive: true,
       cls: C.id, dashT: 0, dashCd: 0, dashN: C.dashes, dashGap: 0, ddx: 0, ddz: 0,
-      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0, lock: 0
+      wpn: 0, ammo: magOf(C.weapon), reload: 0, fireCd: 0, ult: 0, ultT: 0, lock: 0, mon: 0, monT: 0
     };
   }
   function magOf(weapon) { return weapon === WEAPON.RIFLE ? MAG_SIZE : weapon === WEAPON.SNIPER ? SNIPER_MAG : weapon === WEAPON.SHOTGUN ? SHOTGUN_SHELLS : 0; }
-  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT', 'lock'];
+  const SIM_KEYS = ['x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'og', 'alive', 'cls', 'dashT', 'dashCd', 'dashN', 'dashGap', 'ddx', 'ddz', 'wpn', 'ammo', 'reload', 'fireCd', 'ult', 'ultT', 'lock', 'mon', 'monT'];
   /** Which weapon is in this player's hands right now. */
-  function weaponOf(p) { const C = classOf(p); return C.weapon === WEAPON.SWORD && p.wpn === 1 ? WEAPON.SHOTGUN : C.weapon; }
+  function weaponOf(p) { if (p.mon > 0) return WEAPON.CLAWS; const C = classOf(p); return C.weapon === WEAPON.SWORD && p.wpn === 1 ? WEAPON.SHOTGUN : C.weapon; }
+  /** Hitbox scale: the Rune-Warden is a lot bigger than a runner. */
+  const scaleOf = p => (p && (p.mon > 0 || p.s > 1) ? MON_SCALE : 1);
   /** Knight kill reward: the sword transforms into a loaded shotgun (a kill while holding it reloads it). */
   function grantShotgun(p) {
     if (classOf(p).weapon !== WEAPON.SWORD) return false;
@@ -298,7 +314,7 @@
    * Returns gameplay events produced this tick (used for effects/hit detection).
    */
   function stepPlayer(p, input) {
-    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false, ultStart: false, ultFire: false };
+    const ev = { fire: false, dry: false, jump: false, land: false, dash: false, reloadStart: false, reloaded: false, swing: false, sheathe: false, ultStart: false, ultFire: false, monStart: false, monEnd: false };
     const yaw = Number(input.yaw), pitch = Number(input.pitch);
     if (Number.isFinite(yaw)) p.yaw = ((yaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
     if (Number.isFinite(pitch)) p.pitch = clamp(pitch, -1.45, 1.45);
@@ -307,7 +323,11 @@
     if (p.lock > 0) { p.lock--; p.vx = p.vz = 0; p.dashT = 0; return ev; }
     const b = input.b | 0;
 
-    const C = classOf(p), weapon = weaponOf(p);
+    const C = classOf(p);
+    // Rune-Warden: rising (runes crawl over you), then 20 s of monster, then back to normal
+    if (p.monT > 0) { p.monT--; if (p.monT === 0) { p.mon = MON_TICKS; p.fireCd = 0; p.reload = 0; ev.monStart = true; } }
+    else if (p.mon > 0) { p.mon--; if (p.mon === 0) { p.fireCd = 12; ev.monEnd = true; } }
+    const weapon = weaponOf(p);
     if (p.fireCd > 0) p.fireCd--;
     if (p.dashGap > 0) p.dashGap--;
     // dash charges refill one at a time
@@ -337,13 +357,13 @@
       if (p.dashT === 0) { p.vx *= 0.35; p.vz *= 0.35; }
     } else {
       const k = 1 - Math.exp(-(p.og ? GROUND_ACCEL : AIR_ACCEL) * DT);
-      const speed = C.speed * (p.ultT > 0 ? ULT_SLOW : 1);
+      const speed = (p.mon > 0 ? MON_SPEED : C.speed) * (p.ultT > 0 || p.monT > 0 ? ULT_SLOW : 1);
       p.vx += (wx * speed - p.vx) * k;
       p.vz += (wz * speed - p.vz) * k;
     }
 
     const wasGrounded = p.og;
-    if ((b & BTN.JUMP) && p.og) { p.vy = JUMP_VELOCITY; p.og = false; ev.jump = true; }
+    if ((b & BTN.JUMP) && p.og) { p.vy = p.mon > 0 ? MON_JUMP : JUMP_VELOCITY; p.og = false; ev.jump = true; }
     p.vy -= GRAVITY * DT * (p.dashT > 0 ? 0.25 : 1);
 
     moveHorizontal(p, 'x', p.vx * DT);
@@ -360,7 +380,14 @@
     const limX = HALF_X + ALCOVE_DEPTH - PLAYER_RADIUS, limZ = HALF_Z - PLAYER_RADIUS;
     p.x = clamp(p.x, -limX, limX); p.z = clamp(p.z, -limZ, limZ);
 
-    if (weapon === WEAPON.RIFLE) {
+    if (p.monT > 0) {
+      // transforming: no attacks
+    } else if (weapon === WEAPON.CLAWS) {
+      if ((b & BTN.FIRE) && p.fireCd === 0) {
+        p.fireCd = CLAW_TICKS; ev.swing = true; ev.claw = true;
+        if (p.og && p.dashT === 0) { p.vx -= sy * CLAW_LUNGE; p.vz -= cy * CLAW_LUNGE; }
+      }
+    } else if (weapon === WEAPON.RIFLE) {
       if ((b & BTN.RELOAD) && p.reload === 0 && p.ammo < MAG_SIZE) { p.reload = RELOAD_TICKS; ev.reloadStart = true; }
       if ((b & BTN.FIRE) && p.fireCd === 0 && p.reload === 0) {
         if (p.ammo > 0) { p.ammo--; p.fireCd = FIRE_TICKS; ev.fire = true; }
@@ -460,11 +487,12 @@
   /** Ray vs player hitboxes (head sphere + torso capsule + legs capsule). */
   function rayPlayer(o, d, pos, maxT = MAX_RANGE) {
     let best = null;
-    const ht = raySphere(o, d, { x: pos.x, y: pos.y + 1.6, z: pos.z }, 0.2);
+    const k = scaleOf(pos);
+    const ht = raySphere(o, d, { x: pos.x, y: pos.y + 1.6 * k, z: pos.z }, 0.2 * k);
     if (ht !== null && ht < maxT) best = { t: ht, part: 'head' };
-    const bt = rayCapsule(o, d, pos.x, pos.z, pos.y + 0.95, pos.y + 1.32, 0.33);
+    const bt = rayCapsule(o, d, pos.x, pos.z, pos.y + 0.95 * k, pos.y + 1.32 * k, 0.33 * k);
     if (bt !== null && bt < maxT && (!best || bt < best.t)) best = { t: bt, part: 'body' };
-    const lt = rayCapsule(o, d, pos.x, pos.z, pos.y + 0.18, pos.y + 0.95, 0.24);
+    const lt = rayCapsule(o, d, pos.x, pos.z, pos.y + 0.18 * k, pos.y + 0.95 * k, 0.24 * k);
     if (lt !== null && lt < maxT && (!best || lt < best.t)) best = { t: lt, part: 'legs' };
     return best;
   }
@@ -473,12 +501,13 @@
    * rifle: headshots x2, legs x0.75, falloff past 25 m (to 65% at 70 m).
    * shotgun (per pellet): 13 body / 20 head / 10 legs, full up to 8 m, down to 25% at 25 m.
    * sniper: 150 head (one-shot) / 80 body / 60 legs, no falloff.
-   * sword: flat SWORD_DAMAGE.
+   * sword: flat SWORD_DAMAGE. claws (Rune-Warden): flat CLAW_DAMAGE.
    * shielded = the SHIELD ability is active (hardened: 30% damage).
    */
   function damageFor(part, dist, shielded, weapon = WEAPON.RIFLE) {
     let dmg;
     if (weapon === WEAPON.SWORD) dmg = SWORD_DAMAGE;
+    else if (weapon === WEAPON.CLAWS) dmg = CLAW_DAMAGE;
     else if (weapon === WEAPON.SNIPER) dmg = part === 'head' ? 150 : part === 'legs' ? 60 : 80;
     else if (weapon === WEAPON.SHOTGUN) {
       dmg = part === 'head' ? 20 : part === 'legs' ? 10 : 13;
@@ -546,13 +575,15 @@
    * Sword hit test: is this target within reach and inside the swing's cone?
    * Returns { t: distance, part } or null. Walls are checked by the caller.
    */
-  function swordReach(eye, dir, pos) {
+  function swordReach(eye, dir, pos, claws = false) {
     let best = null;
-    for (const [part, h] of [['head', 1.6], ['body', 1.15], ['legs', 0.6]]) {
+    const k = scaleOf(pos), range = claws ? CLAW_RANGE : SWORD_RANGE, arc = claws ? CLAW_ARC_COS : SWORD_ARC_COS;
+    for (const [part, h0] of [['head', 1.6], ['body', 1.15], ['legs', 0.6]]) {
+      const h = h0 * k;
       const dx = pos.x - eye.x, dy = pos.y + h - eye.y, dz = pos.z - eye.z, d = Math.hypot(dx, dy, dz);
-      if (d > SWORD_RANGE + PLAYER_RADIUS) continue;
+      if (d > range + PLAYER_RADIUS * k) continue;
       const cos = d < 0.3 ? 1 : (dx * dir.x + dy * dir.y + dz * dir.z) / d;
-      if (cos < SWORD_ARC_COS) continue;
+      if (cos < arc) continue;
       if (!best || cos > best.cos) best = { t: d, part: part === 'head' ? 'head' : 'body', cos, point: { x: pos.x, y: pos.y + h, z: pos.z } };
     }
     return best;
@@ -565,6 +596,7 @@
     CLASSES, WEAPON, classOf, weaponOf, grantShotgun, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_PER_S,
     SWORD_TICKS, SWORD_RANGE, SWORD_DAMAGE, SHOTGUN_SHELLS, SHOTGUN_TICKS, SHOTGUN_PELLETS, SHOTGUN_RANGE, TRANSFORM_TICKS,
     pelletDirs, swordReach, magOf, sniperDir, beamAxis, inBeam, fireZoneFor, inFireZone,
+    MON_STREAK, MON_RISE_TICKS, MON_TICKS, MON_HP, MON_SCALE, CLAW_TICKS, CLAW_DAMAGE, CLAW_RANGE, ADAPT_STEP, ADAPT_MAX, scaleOf,
     CLASH_INTRO_MS, CLASH_QTE_MS, CLASH_OUTRO_MS, CLASH_MISS_MS, CLASH_SEQ, CLASH_KEYS,
     SNIPER_MAG, SNIPER_TICKS, SNIPER_RELOAD_TICKS, SNIPER_RANGE, ULT_STREAK, ULT_CHARGE_TICKS, BEAM_RADIUS, BEAM_LENGTH,
     FIRE_ZONE_MS, FIRE_DPS, FIRE_HEIGHT,

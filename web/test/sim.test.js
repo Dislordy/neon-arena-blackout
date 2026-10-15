@@ -249,4 +249,26 @@ test('beam clash lock freezes you (look only) until it runs out', () => {
   assert.ok(p.z < -24.5, 'moves again after the lock');
 });
 
+test('Rune-Warden: runes rise for 1.5 s, then 20 s of monster with claws, speed and big jumps', () => {
+  const p = Sim.newPlayerState(-12, -24, 0); p.monT = Sim.MON_RISE_TICKS;
+  let start = -1;
+  for (let i = 0; i < Sim.MON_RISE_TICKS + 2; i++) { const ev = Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })); assert.ok(!ev.fire || i >= Sim.MON_RISE_TICKS - 1); if (ev.monStart) start = i; }
+  assert.strictEqual(start, Sim.MON_RISE_TICKS - 1);
+  assert.strictEqual(Sim.weaponOf(p), 'claws');
+  let swings = 0; for (let i = 0; i < 60; i++) if (Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })).claw) swings++;
+  assert.ok(swings === 2, 'claw swings in 1 s: ' + swings);
+  const q = Sim.newPlayerState(-12, -24, 0); q.mon = 500; let maxY = 0;
+  Sim.stepPlayer(q, input({ b: Sim.BTN.JUMP })); for (let i = 0; i < 90; i++) { Sim.stepPlayer(q, input()); maxY = Math.max(maxY, q.y); }
+  assert.ok(maxY > 2 && maxY < 2.5, 'monster jump ' + maxY);
+  p.mon = 2; let ended = false; for (let i = 0; i < 3; i++) if (Sim.stepPlayer(p, input()).monEnd) ended = true;
+  assert.ok(ended); assert.strictEqual(Sim.weaponOf(p), 'rifle');
+});
+
+test('the monster is bigger: its hitbox is scaled up', () => {
+  const o = { x: 0, y: 2.0, z: 0 }, d = { x: 0, y: 0, z: -1 };
+  assert.strictEqual(Sim.rayPlayer(o, d, { x: 0, y: 0, z: -10 }), null, 'a runner is too short to be hit at 2 m');
+  const hit = Sim.rayPlayer(o, d, { x: 0, y: 0, z: -10, mon: 100 });
+  assert.ok(hit, 'the monster is hit up there');
+});
+
 console.log(`sim: ${passed} passed`);

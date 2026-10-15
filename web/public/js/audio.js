@@ -362,6 +362,42 @@ const designs = {
     mixInto(out, sweepSine(n, sr, 167, 95, 8, { shape: 'saw' }), 0.8);
     return fadeEdges(normalize(lp(out, 1800, sr), 0.6), sr);
   },
+  /** Runes awaken: a deep chant-like drone, a racing heartbeat, stone grinding. 1.5 s. */
+  monRise(sr) {
+    const n = Math.round(sr * 1.7), out = new Float32Array(n);
+    for (const [f, a] of [[55, 1], [82.4, 0.6], [110.5, 0.4], [164.8, 0.25]]) {
+      let ph = 0; for (let i = 0; i < n; i++) { const t = i / sr; ph += TAU * f * (1 + Math.min(1, t / 1.5) * 0.12) / sr; out[i] += Math.sin(ph + Math.sin(t * 5) * 0.6) * a * Math.min(1, t * 2) * 0.35; }
+    }
+    for (let b = 0; b < 6; b++) { const at = 0.1 + b * (0.3 - b * 0.03); for (const d of [0, 0.11]) mixInto(out, sweepSine(Math.round(sr * 0.15), sr, 70, 40, 30), 0.7, Math.round(sr * (at + d))); } // heartbeat, speeding up
+    mixInto(out, env(lp(noise(n, 720), 600, sr), sr, t => Math.min(1, t) * 0.5), 0.6); // grinding
+    return fadeEdges(normalize(softclip(out, 1.5), 0.85), sr);
+  },
+  /** The monster tears out: a huge, layered roar. */
+  monRoar(sr) {
+    const n = Math.round(sr * 1.8), out = new Float32Array(n);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, f = 85 + 40 * Math.sin(Math.min(1, t / 1.2) * Math.PI) + Math.sin(t * 31) * 6;
+      ph += TAU * f / sr;
+      const a = Math.min(1, t * 8) * Math.max(0, 1 - Math.max(0, t - 1.1) / 0.7);
+      out[i] = (Math.sin(ph) + 0.6 * Math.sin(ph * 2.01) + 0.4 * Math.sin(ph * 3.03) + 0.25 * ((ph / TAU) % 1 * 2 - 1)) * a;
+    }
+    mixInto(out, env(lp(noise(n, 730), 1400, sr), sr, t => Math.min(1, t * 8) * Math.exp(-t * 1.6)), 1.1); // breath / growl noise
+    return fadeEdges(normalize(lp(softclip(out, 3), 3200, sr), 0.95), sr);
+  },
+  /** The runes go dark: a long hiss and a falling groan. */
+  monEnd(sr) {
+    const n = Math.round(sr * 1.2), out = env(hp(noise(n, 740), 2500, sr), sr, t => Math.exp(-t * 2.5) * Math.min(1, t * 20));
+    mixInto(out, sweepSine(n, sr, 120, 50, 2.5, { k: 0.4, shape: 'saw' }), 0.3);
+    return fadeEdges(normalize(lp(out, 5000, sr), 0.6), sr);
+  },
+  /** The halo turns as the Warden adapts: a heavy iron clank and a ratchet. */
+  adaptClank(sr) {
+    const n = Math.round(sr * 0.9), out = partials(n, sr, [210, 457, 811, 1290], [5, 7, 10, 14], [1, 0.6, 0.4, 0.25]);
+    mixInto(out, env(hp(noise(n, 750), 1500, sr), sr, t => Math.exp(-t * 60)), 0.8);
+    for (let k = 0; k < 4; k++) mixInto(out, env(hp(noise(Math.round(sr * 0.02), 751 + k), 3000, sr), sr, t => Math.exp(-t * 300)), 0.3, Math.round(sr * (0.08 + k * 0.045)));
+    return fadeEdges(normalize(out, 0.8), sr);
+  },
   /** Bullet absorbed by an energy shield: soft electric thud. */
   shieldHit(sr) {
     const n = Math.round(sr * 0.16), out = sweepSine(n, sr, 900, 300, 30, { k: 1.2 });
@@ -722,9 +758,9 @@ export class AudioEngine {
     src.connect(p); p.connect(g); g.connect(this.sfx);
     src.start(0, Math.random() * src.buffer.duration); src.stop(ctx.currentTime + seconds + 0.1);
   }
-  swordSwing(pos, own = false) {
+  swordSwing(pos, own = false, rate = 1) {
     const name = this.pick('swordSwing');
-    return own ? this.play(name, { volume: 0.8, reverb: 0.15, vary: 0.06 }) : this.play(name, { pos, volume: 1.1, ref: 3, reverb: 0.25, vary: 0.06 });
+    return own ? this.play(name, { volume: 0.8, reverb: 0.15, vary: 0.06, rate }) : this.play(name, { pos, volume: 1.1, ref: 3, reverb: 0.25, vary: 0.06, rate });
   }
   /** A bullet passing close to your head: the supersonic snap arrives before the shooter's bang. */
   bulletCrack(pos) { return this.play('crack', { pos, volume: 1.1, reverb: 0.15, ref: 1.5, vary: 0.1, air: 0 }); }

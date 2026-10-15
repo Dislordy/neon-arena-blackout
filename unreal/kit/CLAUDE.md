@@ -87,6 +87,11 @@ Beam Clash (V4.8): a beam fired at a player who is charging/holding theirs and a
 both locked 7.1 s (1.2 s intro cutscene, 5 s duel, 0.9 s outro), same random 60-key W/A/S/D sequence, wrong key = 0.3 s stun,
 max 20 presses/s; most correct keys wins and their beam fires through the loser; tie = both die.
 
+Rune-Warden (V4.9): a Soldier with 3 kills in a row → 1.5 s rune rise (30% move speed, can't attack) → 20 s monster:
+250 HP + full shield, 7.4 m/s, jump 9.2 m/s, hitbox ×1.35; claws replace the rifle: 85 dmg, 0.5 s swing, 3.4 m reach,
+~100° cone, 5 m/s lunge. Adaptation: each hit from the same weapon type does 15% less (max −60%); the halo turns 60° per step.
+On expiry HP is scaled back (hp / 250 × 100).
+
 Everyone has a 50-point energy shield that takes damage before health and refills at 25/s after 3.5 s without damage.
 
 ### Look

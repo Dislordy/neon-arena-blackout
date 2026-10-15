@@ -276,7 +276,9 @@ button:hover{background:var(--yellow);color:#111;box-shadow:0 0 22px rgba(252,23
 .charges.on{display:block}
 .charges.empty{background-color:#5a5a40;color:#ddd;box-shadow:none}
 .mcharges{position:absolute;pointer-events:none;top:auto;right:calc(194px + env(safe-area-inset-right));bottom:64px;z-index:1}
-.crosshair[data-mode=sword] i{opacity:0}
+.crosshair[data-mode=sword] i,.crosshair[data-mode=claws] i{opacity:0}
+.crosshair[data-mode=claws] b{width:20px;height:20px;left:-10px;top:-10px;background:none;border:2px solid #ff4a5a;border-radius:50%}
+.ultbox.runes{color:#ff8a94}.ultbox.runes i.on{background:#ff3a4a;box-shadow:0 0 8px #ff3a4a}.ultbox.runes.ready{text-shadow:0 0 12px #ff3a4a}
 .crosshair[data-mode=sword] b{width:14px;height:14px;left:-7px;top:-7px;background:none;border:2px solid #ffb27a;border-radius:50%}
 .crosshair[data-mode=shotgun] b{width:4px;height:4px;left:-2px;top:-2px;background:#ffb27a;border-radius:50%}
 @media (pointer:coarse){ .shieldbar{width:110px;height:3px} .classCard{padding:7px} .classCard span{display:none} }

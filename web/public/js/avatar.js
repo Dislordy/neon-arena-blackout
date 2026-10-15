@@ -9,6 +9,8 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
 import { buildSword, buildShotgun, emberMaterial, buildSniper } from './classgear.js';
+import { buildWarden, runeTexture } from './warden.js';
+const MON_SCALE = window.NeonSim.MON_SCALE;
 
 let shared = null;
 function sharedAssets() {
@@ -294,6 +296,14 @@ export class Avatar {
       this.muzzle = rifle.muzzle;
     }
     this.armsG.traverse(o => { if (o.isMesh) o.castShadow = true; });
+    if (soldier) {
+      // the Rune-Warden (monster form) lives inside the soldier, hidden until the runes awaken
+      this.warden = buildWarden(); this.warden.group.scale.setScalar(MON_SCALE); this.warden.group.visible = false; this.body.add(this.warden.group);
+      const rt = runeTexture().clone(); rt.needsUpdate = true; rt.repeat.set(2, 2);
+      this.runeShellMat = new THREE.MeshBasicMaterial({ map: rt, color: new THREE.Color(0xff2a3a).multiplyScalar(2.5), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      this.runeShell = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1.0, 6, 16), this.runeShellMat); this.runeShell.position.y = 1.0; this.runeShell.visible = false; g.add(this.runeShell);
+      this.clawT = -1; this.clawSide = 1; this.haloAngle = 0; this.haloTarget = 0; this.monK = 0;
+    }
     this.gunMode = !knight; this.swingT = -1; this.swingSide = 1;
 
     // shield bubble, x-ray ghost, name tag
@@ -322,8 +332,10 @@ export class Avatar {
     this.gunMode = on; this.sword.visible = !on; this.shotgun.visible = on;
     this.setPose(on ? 'gun' : 'sword');
   }
-  /** Greatsword swing (third person). */
-  swing() { this.swingT = 0; this.swingSide = -this.swingSide; }
+  /** Greatsword swing / Rune-Warden claw slash (third person). */
+  swing() { if (this.mon) { this.clawT = 0; this.clawSide = -this.clawSide; return; } this.swingT = 0; this.swingSide = -this.swingSide; }
+  /** The Warden adapted to a weapon: its halo clicks round a sixth of a turn. */
+  adapt() { if (this.warden) this.haloTarget += Math.PI / 3; }
 
   /** Small hit reaction; dir is the shot direction in world space (optional). */
   flinch(dir) {
@@ -393,7 +405,8 @@ export class Avatar {
     this.head.rotation.x = st.pitch * 0.35 - fl * 0.2;
     this.armsG.rotation.x = st.pitch * 0.45; // arms + rifle carry the rest of the aim pitch
     if (this.cls === 2) this.setShotgun(!!st.shotgun);
-    if (this.swingT >= 0) { // raise, cut across, recover
+    if (this.warden) this.updateWarden(dt, st, p, k, fwd, side);
+    if (this.swingT >= 0 && this.cls === 2) { // raise, cut across, recover
       this.swingT += dt / 0.5;
       const t = Math.min(1, this.swingT), up = Math.sin(Math.min(1, t / 0.25) * Math.PI / 2) * (1 - Math.min(1, Math.max(0, (t - 0.25) / 0.15)));
       const cut = Math.min(1, Math.max(0, (t - 0.22) / 0.15)) * (1 - Math.min(1, Math.max(0, (t - 0.5) / 0.5)));
@@ -419,6 +432,48 @@ export class Avatar {
     this.glow.color.copy(this.color).multiplyScalar(3 * prot + (st.protect ? 1 : 0) + fl * 3 + ult);
     if (this.ember) this.ember.color.setRGB(2.4, 0.86, 0.29).multiplyScalar(1 + Math.sin(this.time * 4) * 0.12 + (this.surge = Math.max(0, (this.surge || 0) - dt * 1.5)) * 2);
   }
+  /** Rune-Warden: runes crawl over the soldier while transforming, then the monster takes over. */
+  updateWarden(dt, st, p, k, fwd, side) {
+    const W = this.warden, mon = !!st.mon, rising = !!st.monT;
+    this.mon = mon;
+    // rune shell: brightens while rising, flashes out at the moment of transformation
+    const target = rising ? 1 : 0;
+    this.runeShellMat.opacity += (target * (0.55 + Math.sin(this.time * 20) * 0.15) - this.runeShellMat.opacity) * Math.min(1, dt * 6);
+    this.runeShell.visible = this.runeShellMat.opacity > 0.02;
+    this.runeShellMat.map.offset.y -= dt * 0.6;
+    this.runeShell.scale.setScalar(1 + (rising ? Math.sin(this.time * 30) * 0.03 : 0));
+    if (rising) { this.frame.position.x = (Math.random() - 0.5) * 0.03; } else this.frame.position.x = 0;
+    this.frame.visible = !mon; W.group.visible = mon;
+    this.tag.position.y = mon ? 3.0 : 2.15;
+    this.shield.scale.set(0.75 * (mon ? MON_SCALE : 1), 1.1 * (mon ? MON_SCALE : 1), 0.75 * (mon ? MON_SCALE : 1)); this.shield.position.y = 0.95 * (mon ? MON_SCALE : 1);
+    if (!mon) return;
+    // heavy, hunched gait
+    for (let i = 0; i < 2; i++) {
+      const L = W.legs[i], ph = p * 0.8 + i * Math.PI;
+      L.hip.rotation.x = Math.sin(ph) * 0.55 * k + this.airBlend * (i ? 0.8 : 0.4);
+      L.knee.rotation.x = -(Math.max(0, Math.sin(ph + 1.3)) * 0.8 * k + this.airBlend * (i ? 1.0 : 0.5));
+    }
+    W.hips.position.y = 0.95 - Math.abs(Math.cos(p * 0.8)) * 0.05 * k;
+    W.torso.rotation.x = 0.18 + st.pitch * 0.3 + Math.sin(this.time * 1.6) * 0.02;
+    W.torso.rotation.y = -Math.sin(p * 0.8) * 0.12 * k;
+    W.head.rotation.x = st.pitch * 0.4 - 0.1;
+    let lx = 0.15 - Math.sin(p * 0.8) * 0.4 * k, rx = 0.15 + Math.sin(p * 0.8) * 0.4 * k, lz = 0.18, rz = -0.18, le = -0.3, re = -0.3;
+    if (this.clawT >= 0) { // wind up, rake across, recover
+      this.clawT += dt / 0.5;
+      const t = Math.min(1, this.clawT), up = Math.sin(Math.min(1, t / 0.3) * Math.PI / 2) * (1 - Math.min(1, Math.max(0, (t - 0.3) / 0.15)));
+      const cut = Math.min(1, Math.max(0, (t - 0.28) / 0.14)) * (1 - Math.min(1, Math.max(0, (t - 0.55) / 0.45)));
+      if (this.clawSide > 0) { rx = 0.15 + up * 2.0 - cut * 0.9; rz = -0.18 - up * 0.5 + cut * 0.9; re = -0.3 - up * 0.6; }
+      else { lx = 0.15 + up * 2.0 - cut * 0.9; lz = 0.18 + up * 0.5 - cut * 0.9; le = -0.3 - up * 0.6; }
+      W.torso.rotation.y += cut * 0.5 * this.clawSide;
+      if (this.clawT >= 1) this.clawT = -1;
+    }
+    W.armL.sh.rotation.set(lx, 0, lz); W.armR.sh.rotation.set(rx, 0, rz); W.armL.el.rotation.x = le; W.armR.el.rotation.x = re;
+    // halo: drifts slowly, snaps a sixth of a turn each time the Warden adapts
+    this.haloAngle += (this.haloTarget - this.haloAngle) * Math.min(1, dt * 10);
+    W.haloSpin.rotation.y = this.haloAngle + this.time * 0.15;
+    W.halo.position.y = 0.52 + Math.sin(this.time * 2) * 0.02;
+    W.glow.color.setRGB(3, 0.35, 0.45).multiplyScalar(1 + Math.sin(this.time * 4) * 0.2);
+  }
   /** Ember flare when the sword transforms. */
   flare() { this.surge = 1; }
   muzzleWorld(out = new THREE.Vector3()) { this.group.updateMatrixWorld(true); return this.muzzle.getWorldPosition(out); }
@@ -426,6 +481,7 @@ export class Avatar {
   dispose() {
     this.group.traverse(o => { if (o.geometry) o.geometry.dispose(); });
     this.glow.dispose(); this.glowSoft.dispose(); this.ownMats.forEach(m => m.dispose()); if (this.ember) this.ember.dispose();
+    if (this.warden) { this.warden.runeMat.dispose(); this.warden.glow.dispose(); this.runeShellMat.dispose(); }
     this.shield.material.dispose(); this.tag.material.map.dispose(); this.tag.material.dispose();
   }
 }

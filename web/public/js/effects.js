@@ -241,6 +241,19 @@ export class Effects {
     this.ring(origin, 0x8fa8ff, radius * 2.5, 0.9);
     for (let i = 0; i < 6; i++) this.flashLight(_v.set(origin.x + axis.x * i * 12, 2, origin.z + axis.z * i * 12), 0xbfd0ff, 140, 0.6);
   }
+  /** Rune-Warden awakening: crimson rune sparks crawl up the body for `seconds`. pose(out) fills a position. */
+  runeRise(pose, seconds) { (this.rises || (this.rises = [])).push({ pose, t: 0, life: seconds, p: new THREE.Vector3() }); }
+  /** ...and the moment the monster bursts out. */
+  runeBurst(pos) {
+    for (const [r, l] of [[6, 0.6], [10, 0.9]]) this.ring(pos, 0xff2a3a, r, l);
+    for (let i = 0; i < 70; i++) {
+      const th = Math.random() * 6.283, ph = Math.random() * 3.14, sp = 3 + Math.random() * 8;
+      this.glow.spawn(pos.x, pos.y + 1.2, pos.z, Math.cos(th) * Math.sin(ph) * sp, Math.cos(ph) * sp * 0.7 + 2, Math.sin(th) * Math.sin(ph) * sp, { life: 0.6 + Math.random() * 0.6, size: 0.09, endSize: 0, color: [2.6, 0.3, 0.4], drag: 2, gravity: 3 });
+    }
+    for (let i = 0; i < 10; i++) this.smoke.spawn(pos.x + rnd(0.6), pos.y + 0.3 + Math.random() * 1.6, pos.z + rnd(0.6), rnd(1.5), 0.8, rnd(1.5), { life: 2.2, size: 0.5, endSize: 2.6, alpha: 0.22, color: [0.2, 0.08, 0.08], drag: 1, spin: rnd(0.5) });
+    this.glow.spawn(pos.x, pos.y + 1.4, pos.z, 0, 0, 0, { life: 0.3, size: 3.2, endSize: 0.4, color: [2.6, 0.5, 0.6] });
+    this.flashLight(_v.set(pos.x, pos.y + 1.5, pos.z), 0xff3040, 80, 0.4);
+  }
   /** Remove beams still on screen (a clash takes over). */
   clearBeams() { if (this.beams) for (const B of this.beams) B.t = Math.max(B.t, 1.4); }
   /**
@@ -524,6 +537,16 @@ export class Effects {
         this.glow.spawn(x, Math.max(0.1, y), z, B.axis.x * 6 + rnd(1), rnd(1), B.axis.z * 6 + rnd(1), { life: 0.5 + Math.random() * 0.5, size: 0.06 + Math.random() * 0.06, endSize: 0, color: [1.2, 1.5, 3.0], drag: 1 });
       }
       if (B.t > 1.6) { this.scene.remove(B.g); B.core.material.dispose(); B.shell.material.dispose(); this.beams.splice(i, 1); }
+    }
+    if (this.rises) for (let i = this.rises.length - 1; i >= 0; i--) {
+      const R = this.rises[i]; R.t += dt; R.pose(R.p);
+      const k = Math.min(1, R.t / R.life);
+      for (let n = 0; n < 2 + k * 6; n++) {
+        const a = Math.random() * 6.283, r = 0.35 + Math.random() * 0.15;
+        this.glow.spawn(R.p.x + Math.cos(a) * r, R.p.y + Math.random() * 1.8, R.p.z + Math.sin(a) * r, 0, 0.8 + Math.random(), 0, { life: 0.5, size: 0.05 + k * 0.04, endSize: 0, color: [2.6, 0.25 + Math.random() * 0.2, 0.35], drag: 1 });
+      }
+      if (Math.random() < 0.3) this.flashLight(_v.set(R.p.x, R.p.y + 1.2, R.p.z), 0xff2a3a, 10 + k * 30, 0.12);
+      if (R.t >= R.life) this.rises.splice(i, 1);
     }
     if (this.clashes) for (let i = this.clashes.length - 1; i >= 0; i--) {
       const C = this.clashes[i]; C.t += dt;

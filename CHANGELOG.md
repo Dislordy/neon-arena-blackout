@@ -1,5 +1,17 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.9 — The Rune-Warden
+- **3 kills in a row as the Soldier** (without dying) wakes the runes: crimson glyphs crawl over your body for 1.5 s
+  (you slow down, everyone sees and hears it, kill feed "… is turning into something"), then you become the
+  **Rune-Warden** for 20 s — an original monster: a pale giant with carved red runes, bandaged forearms,
+  a bone blade on the right arm, a torn dark skirt, horn fins and a halo of iron rune plates.
+- As the Warden: 250 HP + full shield, faster (7.4 m/s), higher jumps, 35% bigger (and easier to hit).
+  The rifle is replaced by **claws**: 85 damage, 3.4 m reach, wide ~100° slash, a short lunge, 0.5 s per swing.
+- **Adaptation**: every hit from the same kind of weapon does 15% less to the Warden (up to −60%), and the halo
+  turns with a heavy clank each time — switch it up to bring it down.
+- When the 20 s run out the runes fade and you turn back into the Soldier (health scaled back down).
+  New HUD rune meter + countdown, first-person claw arms, new sounds (rune rise, roar, adaptation clank, revert).
+
 ## V4.8 — Beam Clash
 - Fire your Obliteration Beam at someone who is charging (or holding) theirs and aiming back, and the beams
   **clash**: a quick cutscene (black bars, side-on camera, "BEAM CLASH", both players shout a line) and then a

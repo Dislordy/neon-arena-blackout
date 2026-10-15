@@ -153,7 +153,7 @@ $('goLandscape').addEventListener('click', () => goLandscape());
 
 // ------------------------------------------------------------------ classes
 const CLASS_INFO = [
-  { blurb: 'VX-9 rifle', stats: '100 HP · 1 dash', icon: '<path d="M5 13a7 7 0 0 1 14 0v2H5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15h14M8 11h8" stroke="currentColor" stroke-width="1.8"/><path d="M9 18h6" stroke="currentColor" stroke-width="1.8"/>' },
+  { blurb: 'Rifle · 3 in a row = monster', stats: '100 HP · 1 dash', icon: '<path d="M5 13a7 7 0 0 1 14 0v2H5z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15h14M8 11h8" stroke="currentColor" stroke-width="1.8"/><path d="M9 18h6" stroke="currentColor" stroke-width="1.8"/>' },
   { blurb: 'Sniper · 5 in a row = beam', stats: '85 HP · 3 dashes', icon: '<path d="M12 3c-4 3-6 7-6 11a6 6 0 0 0 12 0c0-4-2-8-6-11z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M9 13l2 1M15 13l-2 1" stroke="currentColor" stroke-width="2"/>' },
   { blurb: 'Greatsword · kill → shotgun', stats: '130 HP · 1 dash', icon: '<path d="M12 2l2 3v11h-4V5z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6 16h12M12 16v5" stroke="currentColor" stroke-width="2"/>' }
 ];
@@ -381,6 +381,39 @@ function remoteShotgun(shot) {
   if (shot.pe.some(p => p.h)) audio.play('impactBody', { pos: first, volume: 0.8 });
   else if (impacts) audio.play(impactSound(shot.pe.find(p => p.n)?.k), { pos: first, volume: 0.8 });
 }
+// ------------------------------------------------------------------ Rune-Warden (soldier monster form)
+socket.on('monRise', m => {
+  const self = m.id === myId, r = remotes.get(m.id);
+  const pose = out => { const st = self ? local.sim : r?.state; if (st) out.set(st.x, st.y, st.z); };
+  fx.runeRise(pose, Sim.MON_RISE_TICKS * Sim.DT);
+  const st = self ? local.sim : r?.state;
+  audio.play('monRise', st && !self ? { pos: new THREE.Vector3(st.x, st.y + 1.2, st.z), volume: 1.4, ref: 6, reverb: 0.4 } : { volume: 0.9, reverb: 0.3 });
+  if (self) { hud.notice('THE RUNES AWAKEN', 1500); camShake.dash = 1; }
+  else hud.notice(`${playerName(m.id)} IS TURNING INTO SOMETHING`, 1500);
+});
+function monsterBurst(id) {
+  const st = id && id !== myId ? remotes.get(id)?.state : local.sim;
+  if (!st) return;
+  const pos = new THREE.Vector3(st.x, st.y, st.z);
+  fx.runeBurst(pos);
+  if (!id || id === myId) { audio.play('monRoar', { volume: 1.0, reverb: 0.5 }); hud.notice('RUNE-WARDEN · 20 SECONDS', 1800); beamFlash = 0.35; damage.shake = 1; touch.buzz(220); }
+  else audio.play('monRoar', { pos: pos.clone().setY(pos.y + 2), volume: 1.8, ref: 10, rolloff: 0.6, reverb: 0.6 });
+}
+socket.on('monStart', m => monsterBurst(m.id));
+socket.on('monEnd', m => {
+  if (m.id === myId) { audio.play('monEnd', { volume: 0.7, reverb: 0.3 }); hud.notice('THE RUNES GO DARK', 1300); return; }
+  const st = remotes.get(m.id)?.state;
+  if (st) { audio.play('monEnd', { pos: new THREE.Vector3(st.x, st.y + 1.5, st.z), volume: 1.0, ref: 5 }); fx.ring(st, 0xff2a3a, 4, 0.6); }
+});
+socket.on('adapt', a => {
+  const av = avatars.get(a.id), st = a.id === myId ? local.sim : remotes.get(a.id)?.state;
+  if (av) av.adapt();
+  if (st) audio.play('adaptClank', a.id === myId ? { volume: 0.7, reverb: 0.2 } : { pos: new THREE.Vector3(st.x, st.y + 3.2, st.z), volume: 1.3, ref: 6, reverb: 0.3 });
+  const what = { rifle: 'RIFLE', sniper: 'SNIPER', shotgun: 'SHOTGUN', sword: 'GREATSWORD', claws: 'CLAWS', fire: 'FIRE', beam: 'BEAM' }[a.w] || a.w.toUpperCase();
+  if (a.id === myId) hud.notice(`ADAPTED · ${what} −${a.n * 15}%`, 1100);
+  else if (st) hud.damageNumber(`ADAPTED −${a.n * 15}%`, 'shield', new THREE.Vector3(st.x, st.y + 3.3, st.z));
+});
+
 socket.on('ultReady', u => {
   if (u.id === myId) { audio.play('ultReady', { volume: 0.8, bus: 'ui' }); hud.notice('OBLITERATION BEAM READY · NEXT SHOT', 2200); }
 });
@@ -529,13 +562,13 @@ function clashCamera(dt) {
 socket.on('swing', w => {
   const a = avatars.get(w.id), st = remotes.get(w.id)?.state;
   if (a) a.swing();
-  if (st) audio.swordSwing(new THREE.Vector3(st.x, st.y + 1.3, st.z));
+  if (st) audio.swordSwing(new THREE.Vector3(st.x, st.y + 1.3, st.z), false, w.c ? 0.7 : 1);
   if (w.h && w.p) {
     const p = new THREE.Vector3(...w.p), v = avatars.get(w.h);
     const dir = st ? p.clone().sub(new THREE.Vector3(st.x, p.y, st.z)).normalize() : new THREE.Vector3(0, 0, -1);
     if (v) v.flinch(dir);
     fx.playerHit(p, dir, EMBER, false);
-    if (w.h !== myId) audio.play('swordHit', { pos: p, volume: 1.0, reverb: 0.25 });
+    if (w.h !== myId) audio.play('swordHit', { pos: p, volume: 1.0, reverb: 0.25, rate: w.c ? 0.8 : 1 });
   }
 });
 socket.on('transform', t => {
@@ -759,10 +792,11 @@ function finishEvents(ev, wasOg) {
   }
   if (ev.swing) {
     weapon.swing();
-    audio.swordSwing(null, true);
-    camShake.kick = 0.6;
-    touch.buzz(12);
+    audio.swordSwing(null, true, ev.claw ? 0.7 : 1);
+    camShake.kick = ev.claw ? 0.9 : 0.6;
+    touch.buzz(ev.claw ? 18 : 12);
   }
+
   if (ev.dry) audio.play('dry', { volume: 0.7, reverb: 0 });
   if (ev.jump) audio.play('jump', { volume: 0.6, reverb: 0.1 });
   if (ev.land) { audio.play('land', { volume: 0.85, reverb: 0.15 }); audio.footstep(null, true); weapon.land(1); camShake.land = 1; }
@@ -799,7 +833,7 @@ function updateRemotes(dt) {
     const a = avatars.get(id);
     const s = sampleRemote(r, t);
     if (!a || !s) continue;
-    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64), charging: !!(s.flags & 256), ultReady: !!(s.flags & 512) };
+    const st = { x: s.x, y: s.y, z: s.z, yaw: s.yaw, pitch: s.pitch, vx: s.vx, vz: s.vz, alive: !!(s.flags & 1), shield: !!(s.flags & 2), og: !!(s.flags & 8), dash: !!(s.flags & 16), protect: !!(s.flags & 32), shotgun: !!(s.flags & 64), charging: !!(s.flags & 256), ultReady: !!(s.flags & 512), mon: s.flags & 1024 ? 1 : 0, monT: s.flags & 2048 ? 1 : 0 };
     // steps & dash trails
     if (st.alive && r.state && st.og) {
       r.stepDist += Math.hypot(st.x - r.state.x, st.z - r.state.z);
@@ -819,7 +853,7 @@ function updateRemotes(dt) {
 
 // ------------------------------------------------------------------ camera
 const camShake = { kick: 0, land: 0, dash: 0 };
-let fovCur = 78, bobPhase = 0, attractT = 0;
+let fovCur = 78, bobPhase = 0, attractT = 0, monCam = 0;
 function updateCamera(dt, alpha) {
   const s = local.sim, p = local.prev;
   // recoil recovery
@@ -834,7 +868,8 @@ function updateCamera(dt, alpha) {
   const bobK = s.og ? Math.min(1, speed / Sim.MOVE_SPEED) : 0;
   camShake.kick *= Math.exp(-dt * 20); camShake.land *= Math.exp(-dt * 8); camShake.dash *= Math.exp(-dt * 5);
   damage.shake *= Math.exp(-dt * 7); damage.pulse *= Math.exp(-dt * 3.5);
-  let camY = y + Sim.EYE_HEIGHT + Math.abs(Math.sin(bobPhase)) * 0.035 * bobK - camShake.land * 0.12;
+  monCam += ((s.mon > 0 ? 0.75 : 0) - monCam) * (1 - Math.exp(-dt * 4)); // the Warden sees from higher up
+  let camY = y + Sim.EYE_HEIGHT + monCam + Math.abs(Math.sin(bobPhase)) * 0.035 * bobK - camShake.land * 0.12;
   let roll = Math.sin(bobPhase) * 0.004 * bobK + (Math.random() - 0.5) * damage.shake * 0.03;
   let yaw = aimYaw() + (Math.random() - 0.5) * damage.shake * 0.02;
   let pitch = aimPitch() + camShake.kick * 0.004 + (Math.random() - 0.5) * damage.shake * 0.02;
@@ -895,10 +930,11 @@ function frame() {
     const s = local.sim;
     const C = Sim.classOf(s), wpn = Sim.weaponOf(s);
     hud.className(C.name);
-    hud.vitals(local.hp, C.hp, local.sh, C.shield, local.shRegen);
+    hud.vitals(local.hp, s.mon > 0 ? Sim.MON_HP : C.hp, local.sh, C.shield, local.shRegen);
     hud.ammo(s.ammo, s.reload, wpn);
     hud.status(!pointerLocked && !isTouch ? 'CLICK TO LOCK AIM' : !local.alive ? 'REDEPLOYING…'
       : wpn === 'sword' ? 'HOLD FIRE TO SWING · KILL TO REFORGE' : wpn === 'shotgun' ? `PYRE SHOTGUN · ${s.ammo} LEFT`
+      : s.monT > 0 ? 'THE RUNES AWAKEN…' : s.mon > 0 ? `RUNE-WARDEN · ${Math.ceil(s.mon * Sim.DT)}s · HOLD FIRE TO TEAR`
       : s.ultT > 0 ? 'OBLITERATION CHARGING…' : s.ult === 1 ? 'OBLITERATION READY · FIRE TO CHARGE'
       : wpn === 'sniper' && s.reload === 0 && s.ammo > 0 ? (isTouch ? 'TAP ADS TO SCOPE' : 'RIGHT-CLICK TO SCOPE')
       : s.reload > 0 ? 'RELOADING…' : s.ammo === 0 ? 'EMPTY — PRESS R' : 'VX-9 ENERGY RIFLE');
@@ -906,7 +942,8 @@ function frame() {
     // dash: dark only when no charges are left; the badge shows how many remain
     hud.ability('dashBtn', s.dashN > 0 ? 0 : s.dashCd / C.dashRecharge, s.dashT > 0);
     hud.dashCharges(s.dashN, C.dashes, s.dashN < C.dashes ? s.dashCd / C.dashRecharge : 0);
-    hud.ult(wpn === 'sniper', Math.min(Sim.ULT_STREAK, local.streak), s.ult === 1, s.ultT > 0);
+    if (C.key === 'soldier') hud.runes(true, Math.min(Sim.MON_STREAK, local.streak), s.monT > 0, s.mon > 0 ? Math.ceil(s.mon * Sim.DT) : 0);
+    else hud.ult(wpn === 'sniper', Math.min(Sim.ULT_STREAK, local.streak), s.ult === 1, s.ultT > 0);
     hud.scope(!!weapon.scoped && local.alive);
     hud.ability('shieldBtn', Math.max(0, local.cd.shield - since) / 9000, local.cd.shieldOn - since > 0);
     hud.ability('scanBtn', Math.max(0, local.cd.scan - since) / 12000, false);
@@ -916,7 +953,7 @@ function frame() {
     hud.death(!local.alive, local.killedBy, Math.max(0, 2.5 - (now - local.deadAt) / 1000));
     hud.updateDamageNumbers(dt, camera);
     weapon.update({ dt, moveSpeed: Math.hypot(s.vx, s.vz), grounded: s.og, aiming: aimDown, mouseDX, mouseDY, reloadTicks: s.reload, ammo: s.ammo, alive: local.alive, dashing: s.dashT > 0, mode: wpn,
-      charging: s.ultT > 0 ? 1 - s.ultT / Sim.ULT_CHARGE_TICKS : 0, ultReady: s.ult === 1 });
+      charging: s.ultT > 0 ? 1 - s.ultT / Sim.ULT_CHARGE_TICKS : s.monT > 0 ? 1 - s.monT / Sim.MON_RISE_TICKS : 0, ultReady: s.ult === 1 });
     if (cine) weapon.root.visible = false;
     const g = post.grade.uniforms;
     g.damage.value = damage.pulse; g.lowHp.value = local.alive && local.hp <= 35 ? (35 - local.hp) / 35 * 0.8 + 0.2 : 0;

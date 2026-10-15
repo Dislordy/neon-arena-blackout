@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import * as TX from './textures.js';
 import { buildRifle } from './gunmodel.js';
 import { buildSword, buildShotgun, emberMaterial, buildSniper, arcMaterial } from './classgear.js';
+import { buildWarden } from './warden.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 const Sim = window.NeonSim;
@@ -191,6 +192,27 @@ export class Weapon {
     this.adsSniper = new THREE.Vector3(0, -this.sn.scopeY, -0.2);
     this.sniperRig.visible = false;
     this.boltT = -1; this.charge = 0;
+    // ---- Rune-Warden: your own monstrous forearms (borrowed from the third-person model)
+    this.clawRig = new THREE.Group(); this.root.add(this.clawRig);
+    const w = buildWarden();
+    this.clawArms = [w.armR.el, w.armL.el].map((el, i) => {
+      el.parent.remove(el); const holder = new THREE.Group(); holder.add(el); el.position.set(0, 0, 0); el.rotation.set(0, 0, 0);
+      // elbows just below/behind the view edges, forearms reaching forward and slightly inward
+      holder.userData.home = i ? new THREE.Vector3(-0.55, -0.1, 0.12) : new THREE.Vector3(0.25, -0.1, 0.12);
+      holder.userData.rot = i ? new THREE.Euler(1.62, -0.22, 0.5, "YXZ") : new THREE.Euler(1.62, 0.22, -0.5, "YXZ");
+      holder.rotation.order = 'YXZ';
+      holder.position.copy(holder.userData.home); holder.rotation.copy(holder.userData.rot); holder.scale.setScalar(0.6);
+      holder.traverse(o => { if (o.isMesh) o.frustumCulled = false; });
+      this.clawRig.add(holder); return holder;
+    });
+    this.wardenGlow = w.glow;
+    const cc = document.createElement('canvas'); cc.width = 256; cc.height = 16;
+    const cx = cc.getContext('2d'), cg = cx.createLinearGradient(0, 0, 256, 0);
+    cg.addColorStop(0, 'rgba(255,20,40,0)'); cg.addColorStop(0.7, 'rgba(255,40,60,.6)'); cg.addColorStop(1, 'rgba(255,200,205,1)');
+    cx.fillStyle = cg; cx.fillRect(0, 0, 256, 16);
+    this.swordArcTex = this.slashArc.material.map;
+    this.clawArcTex = new THREE.CanvasTexture(cc); this.clawArcTex.colorSpace = THREE.SRGBColorSpace;
+    this.clawRig.visible = false; this.clawT = -1; this.clawSide = 1;
   }
 
   /** 'rifle' | 'sword' | 'shotgun' */
@@ -198,7 +220,7 @@ export class Weapon {
     if (mode === this.mode) return;
     const prev = this.mode; this.mode = mode;
     this.gun.visible = mode === 'rifle'; this.swordRig.visible = mode === 'sword'; this.shotgunRig.visible = mode === 'shotgun';
-    this.sniperRig.visible = mode === 'sniper';
+    this.sniperRig.visible = mode === 'sniper'; this.clawRig.visible = mode === 'claws';
     const host = mode === 'shotgun' ? this.sg : mode === 'sniper' ? this.sn : null;
     if (host) { this.muzzle = host.muzzle; this.ejectPort = host.ejectPort; host.group.add(this.flashGroup); this.flashGroup.position.copy(host.muzzle.position); }
     else { this.muzzle = this.rifleMuzzle; this.ejectPort = this.rifleEject; this.gun.add(this.flashGroup); this.flashGroup.position.copy(this.rifleMuzzle.position); }
@@ -207,7 +229,10 @@ export class Weapon {
   }
 
   /** Greatsword swing (alternates forehand / backhand). */
-  swing() { this.swingT = 0; this.swingDir = -this.swingDir; this.inspectT = -1; }
+  swing() {
+    if (this.mode === 'claws') { this.clawT = 0; this.clawSide = -this.clawSide; return; }
+    this.swingT = 0; this.swingDir = -this.swingDir; this.inspectT = -1;
+  }
 
   drawAmmo(ammo, reloading) {
     const c = this.ammoCanvas.getContext('2d');
@@ -284,7 +309,7 @@ export class Weapon {
     if (this.mode === 'shotgun') this.sg.lamps.forEach((l, i) => { l.visible = i < s.ammo; });
 
     const snReload = this.mode === 'sniper' && s.reloadTicks > 0;
-    this.aim = lerp(this.aim, s.aiming && !reloading && !snReload && s.alive && this.mode !== 'sword' && this.boltT < 0 ? 1 : 0, 1 - Math.exp(-dt * (this.mode === 'sniper' ? 10 : 14)));
+    this.aim = lerp(this.aim, s.aiming && !reloading && !snReload && s.alive && this.mode !== 'sword' && this.mode !== 'claws' && this.boltT < 0 ? 1 : 0, 1 - Math.exp(-dt * (this.mode === 'sniper' ? 10 : 14)));
     this.equip = Math.min(1, this.equip + dt * 2.2);
     this.lowerT = lerp(this.lowerT, s.alive ? 0 : 1, 1 - Math.exp(-dt * 6));
     const aimK = 1 - this.aim * 0.85;
@@ -307,6 +332,7 @@ export class Weapon {
     if (reloading) rlT = 1 - s.reloadTicks / Sim.RELOAD_TICKS;
     this.animateReload(rlT);
     if (this.mode === 'sword') this.animateSwing(dt);
+    if (this.mode === 'claws') this.animateClaws(dt);
     if (this.mode === 'shotgun') this.animatePump(dt);
     if (this.mode === 'sniper') { this.animateBolt(dt, snReload ? 1 - s.reloadTicks / Sim.SNIPER_RELOAD_TICKS : -1); if (snReload) rlT = 1 - s.reloadTicks / Sim.SNIPER_RELOAD_TICKS; }
     // Obliteration Beam charge-up: the rifle hums, trembles and its arc lights burn brighter
@@ -398,6 +424,7 @@ export class Weapon {
       this.slashArc.visible = arcK > 0.01;
       this.slashArc.material.opacity = arcK;
       // centred on the sword hand (lower right for a forehand, mirrored for a backhand)
+      this.slashArc.material.map = this.swordArcTex; this.slashArc.material.color.setRGB(1.6, 1.3, 1.1);
       this.slashArc.position.set(this.swingDir > 0 ? 0.24 : -0.24, -0.3, -0.85);
       this.slashArc.rotation.set(0.15, 0, 0);
       this.slashArc.scale.set(this.swingDir > 0 ? 1 : -1, 1, 1);
@@ -408,6 +435,24 @@ export class Weapon {
     // the forearm follows the wrist part-way
     this.swordArm.position.copy(P.position);
     this.swordArm.rotation.set(0.5 + (v[3] - this.swordRest[3]) * 0.35, 0.3 + v[4] * 0.4, (v[5] - this.swordRest[5]) * 0.3);
+  }
+
+  /** Rune-Warden slashes: alternate arms rake across the view, a crimson arc trails the claws. */
+  animateClaws(dt) {
+    const k0 = Math.sin(performance.now() * 0.002) * 0.02;
+    this.clawArms.forEach((h, i) => { h.position.copy(h.userData.home); h.position.y += k0 * (i ? -1 : 1); h.rotation.copy(h.userData.rot); });
+    this.wardenGlow.color.setRGB(3, 0.35, 0.45).multiplyScalar(1 + Math.sin(performance.now() * 0.004) * 0.2);
+    if (this.clawT < 0) { this.slashArc.visible = false; return; }
+    this.clawT += dt / (Sim.CLAW_TICKS * Sim.DT);
+    const t = Math.min(1, this.clawT), side = this.clawSide, H = this.clawArms[side > 0 ? 0 : 1];
+    const up = ease(seg(t, 0, 0.25)) * (1 - ease(seg(t, 0.25, 0.4))), cut = ease(seg(t, 0.22, 0.4)) * (1 - ease(seg(t, 0.55, 1)));
+    H.position.x += side * (up * 0.1 - cut * 0.3); H.position.y += up * 0.16 - cut * 0.04; H.position.z -= cut * 0.12;
+    H.rotation.x += up * 0.55 - cut * 0.2; H.rotation.y += side * (-up * 0.25 + cut * 0.9); H.rotation.z += side * cut * 0.6;
+    const arcK = seg(t, 0.22, 0.3) * (1 - seg(t, 0.38, 0.55));
+    this.slashArc.visible = arcK > 0.01; this.slashArc.material.opacity = arcK;
+    this.slashArc.material.map = this.clawArcTex; this.slashArc.material.color.setRGB(1.8, 0.5, 0.6);
+    this.slashArc.position.set(side > 0 ? 0.24 : -0.24, -0.3, -0.85); this.slashArc.rotation.set(0.15, 0, 0); this.slashArc.scale.set(side > 0 ? 1 : -1, 1, 1);
+    if (this.clawT >= 1) { this.clawT = -1; this.slashArc.visible = false; }
   }
 
   /** Bolt cycle after each sniper shot (and a mag swap during reloads). */

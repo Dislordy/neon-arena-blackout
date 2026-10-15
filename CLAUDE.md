@@ -23,6 +23,7 @@ The project has **two tracks** in one repository:
 | V4.6 | "The Alley": 32×112 m back-alley map with invisible end walls, grim/rugged atmosphere, lighter default graphics (Medium) |
 | V4.7 | Assassin sniper rifle (scope, bolt action) + Obliteration Beam after 5 kills in a row (charge-up, huge beam, burning half of the map) |
 | V4.8 | Beam Clash: two beams meet -> cutscene + W/A/S/D quick-time duel, winner obliterates the loser |
+| V4.9 | Rune-Warden: Soldier's 3-kill streak -> runes + 20 s monster form (claws, 250 HP, adapts to repeated weapons) |
 
 Details: `CHANGELOG.md`.
 
@@ -51,9 +52,9 @@ npm test                               # sim unit tests + server integration tes
   lag compensation (≤300 ms rewind), input-budget anti-speedhack, 30 Hz snapshots.
 - `public/js/` — `main.js` (input, prediction/reconciliation, interpolation, loop), `world.js` (arena, lights, reflections, fog),
   `nightcity.js` (megacity dressing), `textures.js` (procedural PBR), `effects.js`, `weapon.js` + `gunmodel.js` (VX-9)
-  + `classgear.js` (knight greatsword / shotgun), `avatar.js` (one look per class), `audio.js` (procedural HRTF audio), `post.js`,
+  + `classgear.js` (knight greatsword / shotgun), `warden.js` (Rune-Warden monster model), `avatar.js` (one look per class), `audio.js` (procedural HRTF audio), `post.js`,
   `hud.js`, `touch.js` (phone controls).
-- `NAB_DEBUG=1` enables a test-only `debug` socket event (teleport, grant shotgun). Never set it on Render.
+- `NAB_DEBUG=1` enables a test-only `debug` socket event (teleport, grant shotgun, ult, `mon:'rise'`). Never set it on Render.
 - Quality presets live in `public/js/main.js` (`PRESETS`); `?quality=low|medium|high|ultra` forces one.
 - Verify visual changes with headless Chromium + SwiftShader (Playwright) and check for console errors at Low/Medium/High.
 - Hosting: `render.yaml` (root) deploys `web/` on Render's free plan; the server honours `PORT`.

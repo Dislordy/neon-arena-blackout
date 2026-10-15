@@ -37,14 +37,14 @@ export class Hud {
       const mag = Sim.magOf(w);
       this.pips.forEach((p, i) => { p.style.display = i < mag ? '' : 'none'; });
       $('ammo').nextElementSibling.textContent = mag ? ` / ${mag}` : '';
-      $('weaponName').textContent = w === 'sword' ? 'CINDER OATH GREATSWORD' : w === 'shotgun' ? 'PYRE SHOTGUN · ' + Sim.SHOTGUN_SHELLS + ' SHELLS' : w === 'sniper' ? 'LONGWIRE SNIPER RIFLE' : 'VX-9 ENERGY RIFLE';
-      $('ammo').parentElement.classList.toggle('melee', w === 'sword');
+      $('weaponName').textContent = w === 'claws' ? 'RUNE-WARDEN · CLAWS & BONE BLADE' : w === 'sword' ? 'CINDER OATH GREATSWORD' : w === 'shotgun' ? 'PYRE SHOTGUN · ' + Sim.SHOTGUN_SHELLS + ' SHELLS' : w === 'sniper' ? 'LONGWIRE SNIPER RIFLE' : 'VX-9 ENERGY RIFLE';
+      $('ammo').parentElement.classList.toggle('melee', w === 'sword' || w === 'claws');
       $('crosshair').dataset.mode = w;
       this.last.ammo = undefined;
     });
-    this.set('ammo', weapon === 'sword' ? '⚔' : ammo, v => {
+    this.set('ammo', weapon === 'sword' ? '⚔' : weapon === 'claws' ? '☬' : ammo, v => {
       $('ammo').textContent = v;
-      if (weapon !== 'sword') this.pips.forEach((p, i) => p.classList.toggle('spent', i >= v));
+      if (weapon !== 'sword' && weapon !== 'claws') this.pips.forEach((p, i) => p.classList.toggle('spent', i >= v));
       $('ammo').parentElement.classList.toggle('low', weapon === 'rifle' ? v <= 6 : (weapon === 'shotgun' || weapon === 'sniper') && v <= 1);
     });
     const r = reloadTicks > 0 && weapon === 'rifle' ? 1 - reloadTicks / Sim.RELOAD_TICKS : reloadTicks > 0 && weapon === 'sniper' ? 1 - reloadTicks / Sim.SNIPER_RELOAD_TICKS : 0;
@@ -53,10 +53,21 @@ export class Hud {
   /** Assassin kill-streak meter (5 in a row = Obliteration Beam). */
   ult(show, streak, ready, charging) {
     this.set('ult', `${show}|${streak}|${ready}|${charging}`, () => {
+      $('ultBox').classList.remove('runes'); [...$('ultPips').children].forEach(p => { p.style.display = ''; });
       $('ultBox').classList.toggle('hidden', !show);
       $('ultBox').classList.toggle('ready', ready || charging);
       $('ultLabel').textContent = charging ? 'CHARGING…' : ready ? 'OBLITERATION READY · FIRE' : 'STREAK';
       [...$('ultPips').children].forEach((p, i) => p.classList.toggle('on', ready || charging || i < streak));
+    });
+  }
+  /** Soldier rune meter (3 in a row = Rune-Warden), the awakening, and the monster's remaining time. */
+  runes(show, n, rising, secs) {
+    this.set('ult', `r|${show}|${n}|${rising}|${secs}`, () => {
+      $('ultBox').classList.toggle('hidden', !show);
+      $('ultBox').classList.toggle('ready', rising || secs > 0);
+      $('ultBox').classList.add('runes');
+      $('ultLabel').textContent = rising ? 'THE RUNES AWAKEN…' : secs > 0 ? `RUNE-WARDEN · ${secs}s` : 'RUNES';
+      [...$('ultPips').children].forEach((p, i) => { p.style.display = i < Sim.MON_STREAK ? '' : 'none'; p.classList.toggle('on', rising || secs > 0 || i < n); });
     });
   }
   scope(on) { this.set('scope', on, v => { $('scope').classList.toggle('hidden', !v); $('crosshair').style.visibility = v ? 'hidden' : ''; }); }
