@@ -1,13 +1,12 @@
-// Dense "neon megacity" set dressing: spray-paint graffiti, glowing vending machines,
-// trash and street clutter, stacked vertical neon signs, animated holo-ads on the
-// megabuildings around the arena and holographic koi circling the reactor core.
-// All brands and slogans are original.
+// Back-alley set dressing: grim spray-paint graffiti, flickering vending machines, piles of
+// trash along the walls, a homeless camp, dying vertical neon signs and glitching corporate
+// holo-ads looming over the alley. All brands and slogans are original.
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { mulberry32 } from './textures.js';
 
 const Sim = window.NeonSim;
-const A = Sim.ARENA_HALF;
+const HX = Sim.HALF_X, HZ = Sim.HALF_Z;
 
 function canvasTex(w, h, draw, srgb = true) {
   const c = document.createElement('canvas'); c.width = w; c.height = h;
@@ -17,7 +16,7 @@ function canvasTex(w, h, draw, srgb = true) {
 }
 
 // ------------------------------------------------------------------ graffiti
-const TAGS = ['NO FUTURE', 'WAKE UP', 'FLATLINE', 'RUN FAST', 'GHOST', 'VOID', 'DEAD SIGNAL', 'NOBODY'];
+const TAGS = ['NO FUTURE', 'NOBODY IS COMING', 'DEBT = DEATH', 'THEY SELL YOUR LUNGS', 'RIP JAX', 'ORGANS 4 CREDS', 'DONT BREATHE', 'WE ARE THE TRASH', 'FLATLINE', 'EAT THE RICH', 'GHOST', 'RUN'];
 const SPRAY = ['#ff2fb9', '#00f5ff', '#ffe600', '#b6ff4a', '#ff5a3c', '#ffffff', '#8a5cff'];
 function graffitiTexture(rand, text) {
   return canvasTex(1024, 384, (x, w, h) => {
@@ -89,12 +88,12 @@ function verticalSignTexture(chars, color) {
 
 // ------------------------------------------------------------------ animated holo-ad
 const ADS = [
-  { title: 'MOKU RAMEN', sub: 'もっと熱く · HOT NOODLES · 24H', color: '#ff5a3c' },
-  { title: 'HELIX BIOWARE', sub: 'UPGRADE YOUR BODY · ボディ', color: '#00f5ff' },
-  { title: 'SYNAPSE+', sub: 'FEEL EVERYTHING · 感じて', color: '#ff2fb9' },
-  { title: 'ORBITAL AIR', sub: 'LEAVE THE CITY TONIGHT', color: '#ffd400' },
-  { title: 'VANTA CHROME', sub: 'BE MORE THAN HUMAN · クローム', color: '#b6ff4a' },
-  { title: 'NEON NOIR', sub: 'NIGHTLY · LIVE · 生放送', color: '#8a5cff' }
+  { title: 'HELIX BIOWARE', sub: 'WE BUY ORGANS · CASH TODAY · 臓器', color: '#00f5ff' },
+  { title: 'PURE AIR+', sub: 'BREATHE PREMIUM · 1 HOUR ¥900', color: '#b6ff4a' },
+  { title: 'DEBTLOCK', sub: 'YOUR DEBT · YOUR CHILDREN · FOREVER', color: '#ff3b3b' },
+  { title: 'ORBITAL AIR', sub: 'LEAVE THE CITY · IF YOU CAN AFFORD IT', color: '#ffd400' },
+  { title: 'SYNAPSE+', sub: 'FORGET EVERYTHING · 忘れて', color: '#ff2fb9' },
+  { title: 'MOKU RAMEN', sub: 'REAL MEAT* · *MOSTLY · 24H', color: '#ff5a3c' }
 ];
 function adMaterial(ad, seed) {
   const map = canvasTex(1024, 512, (x, w, h) => {
@@ -126,47 +125,11 @@ function adMaterial(ad, seed) {
         float scan = 0.82 + 0.18 * sin(uv.y * 600.0 + time * 10.0);
         float flick = 0.85 + 0.15 * step(0.2, h(floor(time * 15.0)));
         float sweep = smoothstep(0.0, 0.03, abs(fract(uv.x - time * 0.12) - 0.5)) * 0.25 + 0.75;
-        vec3 outc = c * scan * flick * sweep * 2.4 + color * 0.05;
+        vec3 outc = c * scan * flick * sweep * 1.5 + color * 0.03;
         float edge = 1.0 - step(0.008, min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y)));
         gl_FragColor = vec4(outc + color * edge * 3.0, 1.0);
       }`,
     side: THREE.DoubleSide, fog: false
-  });
-}
-
-// ------------------------------------------------------------------ holographic koi
-function koiGeometry() {
-  const parts = [];
-  const body = new THREE.SphereGeometry(0.5, 20, 14); body.scale(0.42, 0.34, 1.35); parts.push(body);
-  const tail = new THREE.PlaneGeometry(0.9, 0.7, 6, 4); tail.rotateY(Math.PI / 2); tail.rotateZ(Math.PI / 2); tail.translate(0, 0, 0.95); parts.push(tail);
-  for (const s of [-1, 1]) { const fin = new THREE.PlaneGeometry(0.45, 0.3, 2, 2); fin.rotateX(-Math.PI / 2); fin.rotateY(s * 0.6); fin.translate(s * 0.3, -0.08, -0.2); parts.push(fin); }
-  const dorsal = new THREE.PlaneGeometry(0.5, 0.25, 3, 2); dorsal.rotateY(Math.PI / 2); dorsal.translate(0, 0.25, 0.05); parts.push(dorsal);
-  for (const p of parts) { for (const k of Object.keys(p.attributes)) if (!['position', 'normal', 'uv'].includes(k)) p.deleteAttribute(k); }
-  return mergeGeometries(parts.map(p => p.index ? p.toNonIndexed() : p), false);
-}
-function koiMaterial(color) {
-  return new THREE.ShaderMaterial({
-    uniforms: { time: { value: 0 }, color: { value: new THREE.Color(color) } },
-    vertexShader: `uniform float time; varying vec3 vN; varying vec3 vV; varying vec3 vP;
-      void main(){
-        vec3 p = position;
-        float k = smoothstep(-0.6, 1.4, p.z);
-        p.x += sin(p.z * 3.2 - time * 5.0) * 0.16 * k;
-        vP = p;
-        vec4 mv = modelViewMatrix * vec4(p, 1.0); vV = -mv.xyz; vN = normalize(normalMatrix * normal);
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: `uniform float time; uniform vec3 color; varying vec3 vN; varying vec3 vV; varying vec3 vP;
-      void main(){
-        float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);
-        float scan = 0.6 + 0.4 * sin(vP.y * 60.0 - time * 8.0);
-        float scales = 0.75 + 0.25 * sin(vP.z * 40.0) * sin(vP.x * 40.0);
-        float spots = step(0.55, fract(sin(dot(floor(vP.xz * 5.0), vec2(12.9, 78.2))) * 43758.5));
-        vec3 c = mix(color, vec3(1.0), spots * 0.6);
-        float a = (0.25 + f * 1.6) * scan * scales;
-        gl_FragColor = vec4(c * a * 2.2, 1.0);
-      }`,
-    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
   });
 }
 
@@ -176,97 +139,107 @@ export function addNightCity(root, Q) {
   const updaters = [];
   const decalMat = map => new THREE.MeshStandardMaterial({ map, transparent: true, depthWrite: false, roughness: 0.75, metalness: 0, polygonOffset: true, polygonOffsetFactor: -3 });
 
-  // graffiti on the inner faces of the perimeter walls (between pilasters, below the pipes)
-  const spots = [
-    [-21, 1.6, -A + 0.505, 0], [0, 1.4, -A + 0.505, 0], [14, 1.5, -A + 0.505, 0],
-    [21, 1.6, A - 0.505, Math.PI], [0, 1.4, A - 0.505, Math.PI], [-14, 1.5, A - 0.505, Math.PI],
-    [-A + 0.505, 1.5, -14, Math.PI / 2], [-A + 0.505, 1.4, 6, Math.PI / 2],
-    [A - 0.505, 1.5, 14, -Math.PI / 2], [A - 0.505, 1.4, -6, -Math.PI / 2]
-  ];
-  spots.forEach(([x, y, z, ry], i) => {
-    const w = 4.6 + rand() * 1.2;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.375), decalMat(graffitiTexture(rand, TAGS[i % TAGS.length])));
-    m.position.set(x, y, z); m.rotation.y = ry; m.receiveShadow = true; root.add(m);
-  });
+  // graffiti on the building fronts (only where nothing is standing in front of it)
+  let gi = 0;
+  for (let z = -HZ + 3; z < HZ - 2; z += 5 + rand() * 5) {
+    const s = rand() < 0.5 ? -1 : 1, x = s * (HX - 0.012);
+    if (!Sim.isFree(x - s * 0.5, 0, z) || !Sim.isFree(x - s * 0.5, 0, z + 2.2) || !Sim.isFree(x - s * 0.5, 0, z - 2.2)) continue;
+    const w = 3.4 + rand() * 1.6;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.375), decalMat(graffitiTexture(rand, TAGS[gi++ % TAGS.length])));
+    m.position.set(x, 1.3 + rand() * 0.8, z); m.rotation.y = -s * Math.PI / 2; m.receiveShadow = true; root.add(m);
+  }
+  // spray paint on the bus and the barriers
+  for (const b of Sim.boxes) {
+    if (b.kind !== 'bus' && !(b.kind === 'barrier' && rand() < 0.6)) continue;
+    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, alongZ = b.max[2] - b.min[2] > b.max[0] - b.min[0];
+    const L = alongZ ? b.max[2] - b.min[2] : b.max[0] - b.min[0], W = alongZ ? b.max[0] - b.min[0] : b.max[2] - b.min[2];
+    for (const s of [-1, 1]) {
+      const w = Math.min(L * 0.7, 4), m = new THREE.Mesh(new THREE.PlaneGeometry(w, w * 0.375), decalMat(graffitiTexture(rand, TAGS[gi++ % TAGS.length])));
+      const off = (b.kind === 'bus' ? W / 2 + 0.01 : W * 0.35 + 0.012) * s, y = b.kind === 'bus' ? 1.0 : 0.55;
+      if (alongZ) { m.position.set(cx + off, y, cz); m.rotation.y = s * Math.PI / 2; } else { m.position.set(cx, y, cz + off); m.rotation.y = s > 0 ? 0 : Math.PI; }
+      m.scale.setScalar(b.kind === 'bus' ? 1 : 0.32); root.add(m);
+    }
+  }
 
-  // vending machines (colliders live in shared/sim.js)
+  // vending machines (colliders live in shared/sim.js); one is smashed and dark
   const brands = [['VOLTA COLA', '#ff2f4f'], ['SYNTHI-POP', '#00e5ff'], ['KAZE TEA', '#b6ff4a'], ['NOVA ENERGY', '#ffd400']];
-  const shell = new THREE.MeshStandardMaterial({ color: 0x1d2330, roughness: 0.35, metalness: 0.85, envMapIntensity: 1.4 });
+  const shell = new THREE.MeshStandardMaterial({ color: 0x1d2330, roughness: 0.45, metalness: 0.8, envMapIntensity: 1.2 });
   let vi = 0;
   for (const b of Sim.boxes) {
     if (b.kind !== 'vending') continue;
     const [brand, col] = brands[vi++ % brands.length];
-    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, sx = b.max[0] - b.min[0], sy = b.max[1], sz = b.max[2] - b.min[2];
-    const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = b.dir[1] > 0 ? 0 : Math.PI; root.add(g);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), shell); body.position.y = sy / 2; body.castShadow = body.receiveShadow = true; g.add(body);
-    const front = new THREE.Mesh(new THREE.PlaneGeometry(sx - 0.1, sy - 0.15), new THREE.MeshBasicMaterial({ map: vendingTexture(brand, col), color: new THREE.Color(1.8, 1.8, 1.8) }));
-    front.position.set(0, sy / 2, sz / 2 + 0.006); g.add(front);
-    const glow = new THREE.PointLight(col, Q.shadows ? 6 : 0, 5, 2); glow.position.set(0, 1.3, sz / 2 + 0.7); if (Q.shadows) g.add(glow);
-    const topSign = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: new THREE.Color(col).multiplyScalar(4) }));
-    topSign.position.set(0, sy + 0.02, sz / 2 - 0.02); g.add(topSign);
-    updaters.push(t => { const f = Math.sin(t * 31 + vi) > 0.992 ? 0.3 : 1; front.material.color.setScalar(1.8 * f); if (Q.shadows) glow.intensity = 6 * f; });
+    const cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2, sy = b.max[1];
+    const front = Math.abs(b.dir[0]) ? b.max[2] - b.min[2] : b.max[0] - b.min[0], depth = Math.abs(b.dir[0]) ? b.max[0] - b.min[0] : b.max[2] - b.min[2];
+    const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = Math.atan2(b.dir[0], b.dir[1]); root.add(g);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(front, sy, depth), shell); body.position.y = sy / 2; body.castShadow = body.receiveShadow = true; g.add(body);
+    const broken = vi % 2 === 0;
+    const fm = new THREE.MeshBasicMaterial({ map: vendingTexture(brand, col), color: new THREE.Color(1.4, 1.4, 1.4) });
+    const panel = new THREE.Mesh(new THREE.PlaneGeometry(front - 0.1, sy - 0.15), fm);
+    panel.position.set(0, sy / 2, depth / 2 + 0.006); g.add(panel);
+    const ph = vi * 3.7;
+    updaters.push(t => { const f = broken ? (Math.sin(t * 47 + ph) > 0.7 ? 0.9 : 0.08) : (Math.sin(t * 31 + ph) > 0.992 ? 0.3 : 1); fm.color.setScalar(1.4 * f); });
   }
 
-  // trash bags + cardboard boxes in corners (cosmetic, knee height)
+  // trash everywhere: bags, soggy boxes, newspapers piled against the walls
   const bagMat = new THREE.MeshPhysicalMaterial({ color: 0x050506, roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.15 });
-  const boxMat = new THREE.MeshStandardMaterial({ color: 0x5a4330, roughness: 0.95, metalness: 0 });
-  const bagGeos = [], boxGeos = [];
-  const clutter = [[-26.4, -9.5], [26.4, 9.5], [-9.6, -26.6], [9.6, 26.6], [-26.4, 9], [26.4, -9], [3.5, -26.6], [-3.5, 26.6]];
-  for (const [x, z] of clutter) {
-    for (let i = 0; i < 5; i++) {
-      const g = new THREE.SphereGeometry(0.28 + rand() * 0.12, 10, 8);
-      g.scale(1, 0.65 + rand() * 0.2, 0.9); g.rotateY(rand() * 3);
-      g.translate(x + (rand() - 0.5) * 1.3, 0.2, z + (rand() - 0.5) * 0.7); bagGeos.push(g);
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0x4a3828, roughness: 0.95, metalness: 0 });
+  const paperMat = new THREE.MeshStandardMaterial({ color: 0x6a665c, roughness: 0.95, metalness: 0, side: THREE.DoubleSide });
+  const bagGeos = [], boxGeos = [], paperGeos = [];
+  for (let z = -HZ - 4; z < HZ + 4; z += 2.2 + rand() * 3) {
+    const s = rand() < 0.5 ? -1 : 1, x = s * (HX - 0.55);
+    if (!Sim.isFree(x, 0, z)) continue;
+    for (let i = 0; i < 2 + (rand() * 4 | 0); i++) {
+      const g = new THREE.SphereGeometry(0.26 + rand() * 0.14, 10, 8);
+      g.scale(1, 0.6 + rand() * 0.25, 0.9); g.rotateY(rand() * 3);
+      g.translate(x + (rand() - 0.5) * 0.7, 0.18, z + (rand() - 0.5) * 1.2); bagGeos.push(g);
     }
-    for (let i = 0; i < 2; i++) {
-      const s = 0.35 + rand() * 0.25, g = new THREE.BoxGeometry(s, s * 0.8, s);
-      g.rotateY(rand() * 3); g.translate(x + (rand() - 0.5) * 1.4, s * 0.4, z + (rand() - 0.5) * 0.6); boxGeos.push(g);
-    }
+    if (rand() < 0.6) { const sz = 0.3 + rand() * 0.3, g = new THREE.BoxGeometry(sz, sz * 0.7, sz); g.rotateY(rand() * 3); g.rotateZ((rand() - 0.5) * 0.4); g.translate(x - s * 0.3, sz * 0.33, z + (rand() - 0.5)); boxGeos.push(g); }
+  }
+  for (let i = 0; i < 70; i++) { // loose wet paper in the street
+    const x = (rand() - 0.5) * 2 * (HX - 1), z = (rand() - 0.5) * 2 * HZ;
+    if (!Sim.isFree(x, 0, z)) continue;
+    const g = new THREE.PlaneGeometry(0.3 + rand() * 0.2, 0.22 + rand() * 0.15); g.rotateX(-Math.PI / 2); g.rotateY(rand() * 6); g.translate(x, 0.008, z); paperGeos.push(g);
   }
   const strip = gs => mergeGeometries(gs.map(g => { for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g.toNonIndexed(); }), false);
   const bags = new THREE.Mesh(strip(bagGeos), bagMat); bags.castShadow = bags.receiveShadow = true; root.add(bags);
-  const boxes = new THREE.Mesh(strip(boxGeos), boxMat); boxes.castShadow = boxes.receiveShadow = true; root.add(boxes);
+  const cboxes = new THREE.Mesh(strip(boxGeos), boxMat); cboxes.castShadow = cboxes.receiveShadow = true; root.add(cboxes);
+  if (paperGeos.length) { const papers = new THREE.Mesh(strip(paperGeos), paperMat); papers.receiveShadow = true; root.add(papers); }
 
-  // vertical neon signs stacked on top of the perimeter walls
-  const vSigns = [['ホテル', '#ff2fb9', -18, -A - 0.2, 0], ['バー', '#00f5ff', 9, -A - 0.2, 0], ['ネオン', '#ffd400', 18, A + 0.2, Math.PI], ['ラーメン', '#ff5a3c', -9, A + 0.2, Math.PI],
-    ['クラブ', '#b6ff4a', -A - 0.2, 18, Math.PI / 2], ['夜', '#8a5cff', A + 0.2, -18, -Math.PI / 2]];
-  for (const [txt, col, x, z, ry] of vSigns) {
-    const h = 1.15 * [...txt].length + 0.3;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.15, h), new THREE.MeshBasicMaterial({ map: verticalSignTexture(txt, col), color: new THREE.Color(2.2, 2.2, 2.2), side: THREE.DoubleSide }));
-    m.position.set(x, Sim.WALL_HEIGHT + 0.6 + h / 2, z); m.rotation.y = ry; root.add(m);
-    const pole = new THREE.Mesh(new THREE.BoxGeometry(0.08, h + 0.8, 0.08), new THREE.MeshStandardMaterial({ color: 0x111318, metalness: 0.9, roughness: 0.4 }));
-    pole.position.set(x, Sim.WALL_HEIGHT + (h + 0.8) / 2, z); pole.rotation.y = ry; pole.translateZ(-0.06); root.add(pole);
-    updaters.push(t => { m.material.color.setScalar(Math.sin(t * 17 + x) > 0.985 ? 0.4 : 2.2); });
-  }
-
-  // megabuilding facades with animated holo-ads ringing the arena
-  const facadeMat = new THREE.MeshStandardMaterial({ color: 0x0b0d14, roughness: 0.6, metalness: 0.6 });
-  const adCount = Q.extraLights ? 8 : 6;
-  for (let i = 0; i < adCount; i++) {
-    const ang = i / adCount * Math.PI * 2 + 0.35, dist = 44 + (i % 2) * 10;
-    const x = Math.cos(ang) * dist, z = Math.sin(ang) * dist;
-    const w = 12 + rand() * 6, h = w / 2, y = 16 + rand() * 14;
-    const tower = new THREE.Mesh(new THREE.BoxGeometry(w + 3, y + h + 12, 6), facadeMat);
-    tower.position.set(x, (y + h + 12) / 2 - 1, z); tower.lookAt(0, tower.position.y, 0); tower.translateZ(-3.2); root.add(tower);
-    const ad = new THREE.Mesh(new THREE.PlaneGeometry(w, h), adMaterial(ADS[i % ADS.length], i));
-    ad.position.set(x, y, z); ad.lookAt(0, y * 0.6, 0); root.add(ad);
-    updaters.push((t, dt) => { ad.material.uniforms.time.value += dt; });
-  }
-
-  // holographic koi circling above the reactor core
-  const koiGeo = koiGeometry();
-  const koi = [0xff7a2f, 0x00f5ff, 0xff2fb9].map((c, i) => {
-    const m = new THREE.Mesh(koiGeo, koiMaterial(c)); m.scale.setScalar(1.7 - i * 0.2); m.renderOrder = 9; root.add(m);
-    return { m, phase: i * 2.1, r: 4.6 + i * 0.9, y: 6.6 + i * 0.7, speed: 0.32 - i * 0.04 };
-  });
-  updaters.push((t, dt) => {
-    for (const k of koi) {
-      const a = k.phase + t * k.speed;
-      k.m.position.set(Math.cos(a) * k.r, k.y + Math.sin(t * 0.8 + k.phase) * 0.5, Math.sin(a) * k.r);
-      // +z (the tail) points back along the path, so the head (-z) leads
-      k.m.lookAt(Math.cos(a - 0.15) * k.r, k.m.position.y, Math.sin(a - 0.15) * k.r);
-      k.m.material.uniforms.time.value = t;
+  // homeless camp around the shacks: soaked mattresses, a tarp lean-to, shopping cart
+  const mattressMat = new THREE.MeshStandardMaterial({ color: 0x5c5444, roughness: 0.95, metalness: 0 });
+  const tarpMat = new THREE.MeshStandardMaterial({ color: 0x3b2a1a, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
+  const cartMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.35, metalness: 0.9, wireframe: true });
+  for (const b of Sim.boxes) {
+    if (b.kind !== 'shack') continue;
+    const s = b.side, cz = (b.min[2] + b.max[2]) / 2, wallX = s * (HX - 0.05);
+    for (const [dz, rot] of [[-3.2, 0.2], [3.4, -0.1]]) {
+      if (!Sim.isFree(s * (HX - 1.2), 0, cz + dz)) continue;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.16, 1.9), mattressMat); m.position.set(s * (HX - 0.9), 0.08, cz + dz); m.rotation.y = rot; m.receiveShadow = true; root.add(m);
     }
+    const lean = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 2.0), tarpMat); lean.position.set(wallX - s * 0.6, 1.0, cz - 3.2); lean.rotation.set(0, Math.PI / 2, s * 0.5); root.add(lean);
+    const cart = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.5, 0.85, 3, 3, 4), cartMat); cart.position.set(s * (HX - 2.6), 0.55, cz + 3.0); cart.rotation.y = 0.4; root.add(cart);
+  }
+
+  // vertical neon signs stacked high on the fronts, sticking out so they read down the alley (several dying)
+  const vSigns = [['ホテル', '#ff2fb9', -1, -40], ['バー', '#00f5ff', 1, -26], ['質屋', '#ffd400', -1, -12], ['診療所', '#b6ff4a', 1, 3],
+    ['ラーメン', '#ff5a3c', -1, 18], ['夜', '#8a5cff', 1, 33], ['クラブ', '#ff2fb9', -1, 47]];
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x111318, metalness: 0.9, roughness: 0.4 });
+  vSigns.forEach(([txt, col, s, z], i) => {
+    const h = 1.0 * [...txt].length + 0.3, y = 8 + (i % 3) * 1.5 + h / 2, x = s * (HX - 0.9);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1.0, h), new THREE.MeshBasicMaterial({ map: verticalSignTexture(txt, col), color: new THREE.Color(1.8, 1.8, 1.8), side: THREE.DoubleSide }));
+    m.position.set(x, y, z); m.rotation.y = Math.PI / 2; root.add(m);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.06, 0.06), poleMat); arm.position.set(s * (HX - 0.5), y + h / 2 - 0.2, z); root.add(arm);
+    const dying = i % 3 === 0;
+    updaters.push(t => { m.material.color.setScalar(dying ? (Math.sin(t * 23 + i) > 0.3 ? 1.8 : 0.1) : Math.sin(t * 17 + i * 4) > 0.985 ? 0.4 : 1.8); });
+  });
+
+  // corporate holo-ads looming over the alley from the upper floors, plus one at each far end
+  const adSpots = [[-1, -30, 17], [1, -6, 19], [-1, 22, 16], [1, 42, 18]].map(([s, z, y]) => ({ x: s * (HX - 0.3), y, z, ry: -s * Math.PI / 2, w: 11 }));
+  adSpots.push({ x: 0, y: 20, z: -HZ - 28, ry: 0, w: 16 }, { x: 0, y: 20, z: HZ + 28, ry: Math.PI, w: 16 });
+  adSpots.forEach((a, i) => {
+    const ad = new THREE.Mesh(new THREE.PlaneGeometry(a.w, a.w / 2), adMaterial(ADS[i % ADS.length], i));
+    ad.position.set(a.x, a.y, a.z); ad.rotation.y = a.ry; root.add(ad);
+    updaters.push((t, dt) => { ad.material.uniforms.time.value += dt; });
   });
 
   return { update(t, dt) { for (const u of updaters) u(t, dt); } };

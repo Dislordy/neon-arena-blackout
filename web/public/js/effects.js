@@ -1,5 +1,5 @@
 // Visual effects: particle systems, spark streaks, bullet tracers, impact decals,
-// shell casings, muzzle flashes, death bursts, scan pulses, steam vents and dust.
+// shell casings, muzzle flashes, death bursts, scan pulses, steam vents, barrel fires, sparking cables and dust.
 import * as THREE from 'three';
 import * as TX from './textures.js';
 
@@ -181,7 +181,7 @@ export class Effects {
     const N = quality.dust;
     if (N) {
       const p = new Float32Array(N * 3), seed = new Float32Array(N);
-      for (let i = 0; i < N; i++) { p.set([(Math.random() - 0.5) * 54, Math.random() * 7, (Math.random() - 0.5) * 54], i * 3); seed[i] = Math.random(); }
+      for (let i = 0; i < N; i++) { p.set([(Math.random() - 0.5) * 2 * Sim.HALF_X, Math.random() * 7, (Math.random() - 0.5) * 2 * Sim.HALF_Z], i * 3); seed[i] = Math.random(); }
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(p, 3)); g.setAttribute('seed', new THREE.BufferAttribute(seed, 1));
       this.dust = new THREE.Points(g, new THREE.ShaderMaterial({
         uniforms: { time: { value: 0 }, map: { value: glowTex } },
@@ -196,9 +196,15 @@ export class Effects {
       }));
       this.dust.frustumCulled = false; scene.add(this.dust);
     }
-    this.vents = [[-10, -10], [10, 10], [-16, 6], [16, -6], [5, -22], [-5, 22]].map(([x, z]) => ({ x, z, t: Math.random() }));
+    this.vents = []; this.fires = []; this.sparkSpots = []; this.sparkT = 3;
+    this.onSpark = null; // (pos) => sound
     this.time = 0;
   }
+
+  /** World hooks: steam vents [{x,z,y?,dark?}], burning barrels [{x,y,z,small?}], snapped cables [{x,y,z}]. */
+  setVents(list) { this.vents = list.map(v => ({ ...v, t: Math.random() })); }
+  setFires(list) { this.fires = list.map(f => ({ ...f, t: 0, e: Math.random() })); }
+  setSparks(list) { this.sparkSpots = list; }
 
   // ---------------------------------------------------------------- spawners
   flashLight(pos, color = 0xffaa66, peak = 14, life = 0.06) {
@@ -244,7 +250,7 @@ export class Effects {
     const nx = n[0], ny = n[1], nz = n[2];
     this.decal(point, n);
     const wet = kind === 'floor';
-    const metal = !wet && kind !== 'perimeter';
+    const metal = !wet && !['facade', 'barrier', 'shack'].includes(kind);
     // hot glow at the hole
     this.glow.spawn(point.x + nx * 0.02, point.y + ny * 0.02, point.z + nz * 0.02, 0, 0, 0, { life: 0.35, size: 0.22, endSize: 0.05, color: [1.6, 0.8, 0.35] });
     const count = metal ? 14 : 7;
@@ -361,10 +367,39 @@ export class Effects {
       if (S.life <= 0) this.shellMesh.setMatrixAt(i, _m.makeScale(0, 0, 0));
     }
     this.shellMesh.instanceMatrix.needsUpdate = true;
-    // steam vents
+    // steam vents (and black smoke from the burnt bus)
     for (const V of this.vents) {
       V.t -= dt;
-      if (V.t <= 0) { V.t = 0.12 + Math.random() * 0.1; this.smoke.spawn(V.x + rnd(0.4), 0.05, V.z + rnd(0.2), rnd(0.15), 0.6 + Math.random() * 0.5, rnd(0.15), { life: 3 + Math.random(), size: 0.3, endSize: 2.2, alpha: 0.1, color: [0.55, 0.6, 0.7], drag: 0.4, spin: rnd(0.3) }); }
+      if (V.t > 0) continue;
+      if (V.dark) { V.t = 0.2 + Math.random() * 0.15; this.smoke.spawn(V.x + rnd(0.6), V.y || 0.05, V.z + rnd(1.5), rnd(0.2), 0.9 + Math.random() * 0.5, rnd(0.2), { life: 5, size: 0.6, endSize: 4, alpha: 0.18, color: [0.07, 0.065, 0.06], drag: 0.25, spin: rnd(0.3) }); }
+      else { V.t = 0.12 + Math.random() * 0.1; this.smoke.spawn(V.x + rnd(0.4), 0.05, V.z + rnd(0.2), rnd(0.15), 0.6 + Math.random() * 0.5, rnd(0.15), { life: 3 + Math.random(), size: 0.3, endSize: 2.2, alpha: 0.1, color: [0.5, 0.52, 0.5], drag: 0.4, spin: rnd(0.3) }); }
+    }
+    // barrel fires: licking flames, rising embers, a thin column of smoke
+    for (const F of this.fires) {
+      F.t -= dt; F.e -= dt;
+      const k = F.small ? 0.6 : 1;
+      for (let n = 0; F.t <= 0 && n < 6; n++) { // catch up at low frame rates
+        F.t += 0.035 / k;
+        this.glow.spawn(F.x + rnd(0.22 * k), F.y, F.z + rnd(0.22 * k), rnd(0.15), 1.1 + Math.random() * 0.8, rnd(0.15),
+          { life: 0.35 + Math.random() * 0.25, size: 0.42 * k, endSize: 0.05, color: [2.2, 0.75 + Math.random() * 0.35, 0.18], drag: 1.2, gravity: -1.2 });
+        if (Math.random() < 0.25) this.smoke.spawn(F.x + rnd(0.2), F.y + 0.7, F.z + rnd(0.2), rnd(0.1), 0.9, rnd(0.1), { life: 3, size: 0.25, endSize: 1.6, alpha: 0.16, color: [0.08, 0.07, 0.06], drag: 0.3, spin: rnd(0.4) });
+      }
+      if (F.e <= 0) {
+        F.e = Math.max(F.e, -0.2) + 0.08 + Math.random() * 0.25;
+        this.glow.spawn(F.x + rnd(0.2), F.y + 0.2, F.z + rnd(0.2), rnd(0.6), 1.5 + Math.random() * 1.8, rnd(0.6), { life: 1.4 + Math.random(), size: 0.03, endSize: 0, color: [2.6, 1.0, 0.3], drag: 0.6, gravity: -0.4 });
+      }
+    }
+    // snapped cables spit sparks every few seconds
+    if (this.sparkSpots.length) {
+      this.sparkT -= dt;
+      if (this.sparkT <= 0) {
+        this.sparkT = 1.5 + Math.random() * 4;
+        const S = this.sparkSpots[(Math.random() * this.sparkSpots.length) | 0];
+        for (let i = 0; i < 18; i++) this.sparks.spawn(S.x, S.y, S.z, rnd(3), Math.random() * 2, rnd(3), 0.5 + Math.random() * 0.5, [1, 0.85, 0.5]);
+        this.glow.spawn(S.x, S.y, S.z, 0, 0, 0, { life: 0.12, size: 0.7, endSize: 0.1, color: [2.5, 2.5, 3] });
+        this.flashLight(_v.set(S.x, S.y, S.z), 0xc8d8ff, 18, 0.1);
+        if (this.onSpark) this.onSpark(S);
+      }
     }
     // rain splashes around the camera
     if (this.Q.rain) {
@@ -383,7 +418,7 @@ const rnd = s => (Math.random() * 2 - 1) * s;
 export function groundHeight(x, z, y) {
   let g = 0;
   for (const b of Sim.boxes) {
-    if (x > b.min[0] && x < b.max[0] && z > b.min[2] && z < b.max[2] && b.max[1] <= y + 0.05 && b.max[1] > g) g = b.max[1];
+    if (b.solid && x > b.min[0] && x < b.max[0] && z > b.min[2] && z < b.max[2] && b.max[1] <= y + 0.05 && b.max[1] > g) g = b.max[1];
   }
   return g;
 }

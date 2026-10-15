@@ -228,6 +228,66 @@ export function concreteMaps(size) {
   }, { normalStrength: 2 }));
 }
 
+/** Grimy old brick with soot, water streaks and patched mortar. One tile = 2 m (8 x 30 bricks). */
+export function brickMaps(size, tint = [0.32, 0.17, 0.12]) {
+  return finalize(buildSet(size, (u, v, o) => {
+    const rows = 30, cols = 8, rv = v * rows, ri = Math.floor(rv), fv = rv - ri;
+    const cu = u * cols + (ri % 2 ? 0.5 : 0), ci = Math.floor(cu), fu = cu - ci;
+    const mortar = fv < 0.12 || fu < 0.035;
+    const h = hash(ci * 13 + 7, ri * 31 + 3), g = fbm(u, v, 16, 4, 91);
+    const soot = smooth(0.35, 0.9, fbm(u * 2, v * 0.5, 4, 4, 92));          // dark grime patches
+    const streak = smooth(0.55, 0.85, fbm(u * 6, v * 0.25, 12, 3, 93));     // rain run-off streaks
+    const spall = smooth(0.7, 0.76, fbm(u, v, 10, 5, 94));                  // chipped bricks
+    let r = tint[0] * (0.7 + h * 0.6), gg = tint[1] * (0.7 + h * 0.5), b = tint[2] * (0.75 + h * 0.4);
+    if (mortar) { r = gg = b = 0.16 + g * 0.06; }
+    const dark = 1 - soot * 0.55 - streak * 0.25;
+    o.r = mix(r, 0.2, spall * 0.5) * dark; o.g = mix(gg, 0.2, spall * 0.5) * dark; o.b = mix(b, 0.21, spall * 0.5) * dark;
+    o.h = mortar ? 0.25 : 0.6 + (g - 0.5) * 0.3 - spall * 0.3;
+    o.rough = mortar ? 0.95 : 0.8 - streak * 0.45;                           // streaks stay wet and shiny
+    o.metal = 0;
+  }, { normalStrength: 3 }));
+}
+
+/** Corrugated roller shutter: chipped paint over rust. One tile = 2 m. */
+export function shutterMaps(size, paint = [0.13, 0.2, 0.2]) {
+  return finalize(buildSet(size, (u, v, o) => {
+    const rib = Math.sin(v * Math.PI * 2 * 24) * 0.5 + 0.5;
+    const rust = smooth(0.5, 0.75, fbm(u, v, 6, 5, 101)) + smooth(0.6, 0.9, fbm(u * 8, v * 0.6, 16, 3, 102)) * 0.6;
+    const g = fbm(u, v, 16, 3, 103);
+    o.r = mix(paint[0], 0.32, Math.min(1, rust)) * (0.75 + rib * 0.35);
+    o.g = mix(paint[1], 0.15, Math.min(1, rust)) * (0.75 + rib * 0.35);
+    o.b = mix(paint[2], 0.07, Math.min(1, rust)) * (0.75 + rib * 0.35);
+    o.h = rib * 0.8 + g * 0.1;
+    o.rough = mix(0.45, 0.85, Math.min(1, rust)); o.metal = mix(0.6, 0.2, Math.min(1, rust));
+  }, { normalStrength: 2.5 }));
+}
+
+/** Burnt, blistered metal (wrecked vehicles). One tile = 2 m. */
+export function burntMetalMaps(size, paint = [0.25, 0.08, 0.06]) {
+  return finalize(buildSet(size, (u, v, o) => {
+    const burn = smooth(0.35, 0.7, fbm(u, v, 4, 5, 111));
+    const rust = smooth(0.55, 0.8, fbm(u, v, 8, 5, 112));
+    const blister = smooth(0.62, 0.7, fbm(u, v, 24, 3, 113));
+    let r = mix(paint[0], 0.03, burn), g = mix(paint[1], 0.025, burn), b = mix(paint[2], 0.02, burn);
+    r = mix(r, 0.3, rust * 0.8); g = mix(g, 0.13, rust * 0.8); b = mix(b, 0.05, rust * 0.8);
+    o.r = r; o.g = g; o.b = b;
+    o.h = 0.5 + blister * 0.3 - rust * 0.1;
+    o.rough = 0.55 + burn * 0.4; o.metal = mix(0.7, 0.3, Math.max(burn, rust));
+  }, { normalStrength: 2.5 }));
+}
+
+/** Chain-link fence mesh (alpha). One tile = 1 m. */
+export function chainLinkMaps(size) {
+  return finalize(buildSet(size, (u, v, o) => {
+    const a = (u + v) * 12, b = (u - v) * 12;
+    const da = Math.abs((a % 1 + 1) % 1 - 0.5), db = Math.abs((b % 1 + 1) % 1 - 0.5);
+    const wire = Math.max(smooth(0.43, 0.47, da), smooth(0.43, 0.47, db));
+    const rust = fbm(u, v, 8, 3, 121);
+    o.r = 0.35 + rust * 0.2; o.g = 0.33 + rust * 0.1; o.b = 0.3;
+    o.h = wire; o.rough = 0.5 + rust * 0.3; o.metal = 0.8; o.a = wire;
+  }, { normalStrength: 1, alpha: true }));
+}
+
 /** Metal floor grating (alpha-tested so you can see through catwalks). One tile = 1 m. */
 export function grateMaps(size) {
   return finalize(buildSet(size, (u, v, o) => {

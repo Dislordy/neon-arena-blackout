@@ -20,6 +20,7 @@ The project has **two tracks** in one repository:
 | **V4 (Build 4)** | **This repo**: both tracks unified, web hosting via `render.yaml`, Chromebook launcher `web/scripts/play.sh` |
 | V4.1–V4.4 | Audio remix, realistic gunfire, mobile landscape + touch HUD, in-game ☰ menu |
 | V4.5 | Classes: Soldier / Assassin (3 dash charges) / Knight (greatsword → shotgun on kill, 130 HP); regenerating energy shields |
+| V4.6 | "The Alley": 32×112 m back-alley map with invisible end walls, grim/rugged atmosphere, lighter default graphics (Medium) |
 
 Details: `CHANGELOG.md`.
 
@@ -41,6 +42,7 @@ npm test                               # sim unit tests + server integration tes
 ./scripts/play.sh                      # start + public ngrok link (Chromebook)
 ```
 - `shared/sim.js` — **single source of truth** for movement, collision, map boxes, classes (`CLASSES`), weapon timings, ray casts and damage.
+  Map = "The Alley" (`HALF_X` 16, `HALF_Z` 56). Box kinds `boundary` (invisible wall) and `fence` don't stop bullets (`box.solid`).
   Shotgun pellets are seeded by the input sequence number (`pelletDirs`) so client and server agree.
   Loaded by the server (`require`) and the browser (`<script>`, `window.NeonSim`). Any map/gameplay change goes here first.
 - `server.js` — authoritative: clients send only inputs; server runs 60 Hz ticks, owns position/ammo/HP/score,
@@ -57,7 +59,8 @@ npm test                               # sim unit tests + server integration tes
 ## Unreal track (`unreal/`)
 - `unreal/kit/` is copied into the developer's Lyra project folder (next to `LyraStarterGame.uproject`):
   `CLAUDE.md` (Lyra-specific), `Tools/NeonArena/lyra_inventory.py` (read-only project scan),
-  `Tools/NeonArena/v2_map.json` (the arena: 93 boxes + 14 spawns, meters, Y-up).
+  `Tools/NeonArena/v2_map.json` (the V2 arena: 93 boxes + 14 spawns, meters, Y-up),
+  `Tools/NeonArena/alley_map.json` (the current web map, V4.6: 139 boxes + 14 spawns).
 - Carry-over spec (V2 numbers to reproduce in Unreal) and the Lyra structure notes: `unreal/kit/CLAUDE.md`.
 - Milestones M0–M13 are tracked there. **Current: M0** (baseline + inventory output not yet received).
 

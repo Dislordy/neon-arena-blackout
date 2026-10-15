@@ -16,27 +16,51 @@ test('every spawn point is clear of geometry', () => {
 });
 
 test('standing player stays grounded', () => {
-  const p = Sim.newPlayerState(-18, -20);
+  const p = Sim.newPlayerState(-12, -24);
   run(p, input(), 30);
   assert.strictEqual(p.y, 0); assert.ok(p.og);
 });
 
 test('walking forward moves along -z at roughly MOVE_SPEED', () => {
-  const p = Sim.newPlayerState(-18, -20);
+  const p = Sim.newPlayerState(-12, -24);
   run(p, input({ mz: 1 }), 60);
-  assert.ok(Math.abs(p.x + 18) < 1e-6);
-  assert.ok(p.z < -20 - 4.5 && p.z > -20 - 6.3, 'z=' + p.z);
+  assert.ok(Math.abs(p.x + 12) < 1e-6);
+  assert.ok(p.z < -24 - 4.5 && p.z > -24 - 6.3, 'z=' + p.z);
 });
 
 test('walls block movement', () => {
-  // Core spans x -2..2. Start east of it and walk west (yaw = +90deg looks along -x).
+  // The burnt-out bus spans x -1.4..1.4. Start east of it and walk west (yaw = +90deg looks along -x).
   const p = Sim.newPlayerState(4, 0);
   run(p, input({ mz: 1, yaw: Math.PI / 2 }), 120);
-  assert.ok(p.x >= 2 + Sim.PLAYER_RADIUS - 1e-3, 'x=' + p.x);
+  assert.ok(p.x >= 1.4 + Sim.PLAYER_RADIUS - 1e-3, 'x=' + p.x);
+});
+
+test('invisible walls close the ends of the alley, building fronts close the sides', () => {
+  const p = Sim.newPlayerState(-12, -50);
+  run(p, input({ mz: 1 }), 240);
+  assert.ok(p.z >= -Sim.HALF_Z + Sim.PLAYER_RADIUS - 1e-3 && p.z < -Sim.HALF_Z + 0.5, 'z=' + p.z);
+  const q = Sim.newPlayerState(-12, -29);
+  run(q, input({ mz: 1, yaw: Math.PI / 2 }), 240);
+  assert.ok(Math.abs(q.x - (-Sim.HALF_X + Sim.PLAYER_RADIUS)) < 0.01, 'x=' + q.x);
+});
+
+test('invisible walls and chain-link fences do not stop bullets; building fronts do', () => {
+  const end = Sim.raycastWorld({ x: -12, y: 1.6, z: -50 }, { x: 0, y: 0, z: -1 });
+  assert.strictEqual(end, null, 'shot out of the alley end flies on');
+  const fence = Sim.boxes.find(b => b.kind === 'fence');
+  const fz = (fence.min[2] + fence.max[2]) / 2, fx = (fence.min[0] + fence.max[0]) / 2;
+  const through = Sim.raycastWorld({ x: fx, y: 1.2, z: fz + 3 * Math.sign(-fz) }, { x: 0, y: 0, z: Math.sign(fz) }, 6);
+  assert.ok(!through || through.kind !== 'fence');
+  const wall = Sim.raycastWorld({ x: 0, y: 1.6, z: -29 }, { x: -1, y: 0, z: 0 });
+  assert.strictEqual(wall.kind, 'facade');
+  // ...but a fence still blocks movement
+  const p = Sim.newPlayerState(fx, fz + 2 * Math.sign(-fz));
+  run(p, input({ mz: 1, yaw: fz > 0 ? Math.PI : 0 }), 120);
+  assert.ok(Math.abs(p.z - fz) > 0.3, 'walked through the fence: z=' + p.z);
 });
 
 test('jumping reaches ~1.36 m and lands', () => {
-  const p = Sim.newPlayerState(-18, -20);
+  const p = Sim.newPlayerState(-12, -24);
   let maxY = 0;
   Sim.stepPlayer(p, input({ b: Sim.BTN.JUMP }));
   for (let i = 0; i < 90; i++) { Sim.stepPlayer(p, input()); maxY = Math.max(maxY, p.y); }
@@ -52,23 +76,23 @@ test('player can jump onto a crate', () => {
   assert.ok(p.og);
 });
 
-test('stairs lead up to the catwalk', () => {
-  // NW stairs: bottom near x=-10.8, deck at x<-15, z ~ -26.7. Walk west (yaw=+90deg -> -x).
-  const p = Sim.newPlayerState(-9.5, -26.7);
-  run(p, input({ mz: 1, yaw: Math.PI / 2 }), 150);
+test('fire-escape stairs lead up to the walkway', () => {
+  // right-hand stairs: bottom near z=9.8, deck from z=14 to 30 along x 13.6..16. Walk +z (yaw = 180deg).
+  const p = Sim.newPlayerState(15.2, 9.2);
+  run(p, input({ mz: 1, yaw: Math.PI }), 150);
   assert.ok(Math.abs(p.y - Sim.CATWALK_TOP) < 0.01, 'y=' + p.y);
-  assert.ok(p.x < -15, 'x=' + p.x);
+  assert.ok(p.z > 14, 'z=' + p.z);
 });
 
 test('walking down stairs stays grounded (ground snapping)', () => {
-  const p = Sim.newPlayerState(-20, -26.7); p.y = Sim.CATWALK_TOP + 1e-4;
+  const p = Sim.newPlayerState(15.2, 16); p.y = Sim.CATWALK_TOP + 1e-4;
   let air = 0;
-  for (let i = 0; i < 120; i++) { Sim.stepPlayer(p, input({ mz: 1, yaw: -Math.PI / 2 })); if (!p.og) air++; }
+  for (let i = 0; i < 90; i++) { Sim.stepPlayer(p, input({ mz: 1, yaw: 0 })); if (!p.og) air++; }
   assert.strictEqual(p.y, 0); assert.ok(air < 5, 'air ticks=' + air);
 });
 
 test('dash bursts and has a cooldown', () => {
-  const p = Sim.newPlayerState(-18, -20);
+  const p = Sim.newPlayerState(-12, -24);
   const ev = Sim.stepPlayer(p, input({ mz: 1, b: Sim.BTN.DASH }));
   assert.ok(ev.dash);
   run(p, input({ mz: 1 }), Sim.DASH_TICKS);
@@ -77,14 +101,14 @@ test('dash bursts and has a cooldown', () => {
 });
 
 test('fire rate, ammo and reload are enforced by the simulation', () => {
-  const p = Sim.newPlayerState(-18, -20);
+  const p = Sim.newPlayerState(-12, -24);
   let shots = 0;
   for (let i = 0; i < 60; i++) if (Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE })).fire) shots++;
   assert.ok(shots >= 5 && shots <= 6, 'shots in 1s=' + shots);
   for (let i = 0; i < 400; i++) Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE }));
   // Mag emptied, reload kicked in automatically, firing resumed.
   assert.ok(p.ammo >= 0 && p.ammo <= Sim.MAG_SIZE);
-  const q = Sim.newPlayerState(-18, -20); q.ammo = 3;
+  const q = Sim.newPlayerState(-12, -24); q.ammo = 3;
   Sim.stepPlayer(q, input({ b: Sim.BTN.RELOAD }));
   assert.ok(q.reload > 0);
   assert.ok(!Sim.stepPlayer(q, input({ b: Sim.BTN.FIRE })).fire, 'cannot fire while reloading');
@@ -95,7 +119,7 @@ test('fire rate, ammo and reload are enforced by the simulation', () => {
 test('walls block bullets', () => {
   const o = { x: 6, y: 1.6, z: 0 }, d = { x: -1, y: 0, z: 0 };
   const w = Sim.raycastWorld(o, d);
-  assert.ok(w && Math.abs(w.t - 4) < 1e-6, 'core face expected at t=4');
+  assert.ok(w && Math.abs(w.t - 4.6) < 1e-6, 'bus side expected at t=4.6');
   assert.deepStrictEqual(w.n, [1, 0, 0]);
 });
 
@@ -118,7 +142,7 @@ test('damage model', () => {
 });
 
 test('assassin has three dash charges that refill one at a time', () => {
-  const p = Sim.newPlayerState(-18, -20, 1);
+  const p = Sim.newPlayerState(-12, -24, 1);
   let dashes = 0;
   for (let i = 0; i < 70; i++) if (Sim.stepPlayer(p, input({ mz: i % 2 ? 0 : 1, b: Sim.BTN.DASH })).dash) dashes++;
   assert.strictEqual(dashes, 3);
@@ -130,12 +154,12 @@ test('assassin has three dash charges that refill one at a time', () => {
 });
 
 test('class speeds differ', () => {
-  const dist = cls => { const p = Sim.newPlayerState(-18, -20, cls); run(p, input({ mz: 1 }), 60); return -20 - p.z; };
+  const dist = cls => { const p = Sim.newPlayerState(-12, -24, cls); run(p, input({ mz: 1 }), 60); return -24 - p.z; };
   assert.ok(dist(1) > dist(0) && dist(0) > dist(2));
 });
 
 test('knight swings the sword (no ammo, no reload) and the shotgun folds back when empty', () => {
-  const p = Sim.newPlayerState(-18, -20, 2);
+  const p = Sim.newPlayerState(-12, -24, 2);
   assert.strictEqual(Sim.weaponOf(p), 'sword');
   let swings = 0;
   for (let i = 0; i < 120; i++) { const ev = Sim.stepPlayer(p, input({ b: Sim.BTN.FIRE | Sim.BTN.RELOAD })); if (ev.swing) swings++; assert.ok(!ev.fire); }

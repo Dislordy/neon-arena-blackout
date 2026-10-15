@@ -41,6 +41,14 @@ V2 uses **meters, Y-up**; Unreal uses **centimeters, Z-up**. Conversion: `UE_X =
   10 barrels, 4 vending machines, 4 perimeter catwalks (deck at 3.3 m) each with a 10-step staircase.
 - 14 spawn points. Exact boxes/spawns: `Tools/NeonArena/v2_map.json`.
 
+### The Alley (web V4.6 map — the web game's current map)
+- Back-alley 32 m wide × 112 m long (building fronts at x = ±16 m with 3 m-deep alcoves, invisible walls at z = ±56 m;
+  the alley visually continues into fog past a police cordon).
+- Burnt-out bus in the middle, wrecked cars, dumpsters (1.25 m, jumpable), concrete barriers (1 m), chain-link fences
+  (block players, not bullets), crates, burning barrels, a shanty shack; fire escapes along the fronts joined by
+  footbridges across the alley (deck at 3.3 m, 10-step stairs). 139 boxes, 14 spawns: `Tools/NeonArena/alley_map.json`
+  (each box says `blocksBullets`). Which map M2 blocks out first is the developer's choice.
+
 ### Player
 | V2 value | Meaning | Unreal equivalent (to tune) |
 |---|---|---|

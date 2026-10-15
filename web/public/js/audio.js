@@ -327,6 +327,61 @@ const designs = {
     };
     return { L: ch(50), R: ch(51) };
   },
+  /** Crackling trash fire (loop): low roar + random wood/plastic pops. */
+  fireLoop(sr) {
+    const n = Math.round(sr * 4);
+    const ch = seed => {
+      const body = lp(lp(noise(n, seed), 500, sr), 700, sr);
+      mixInto(body, lp(noise(n, seed + 3), 150, sr), 2);
+      let s2 = seed * 17 + 3;
+      for (let k = 0; k < 140; k++) {
+        s2 = (s2 * 16807) % 2147483647;
+        const len = Math.round(sr * (0.002 + (s2 % 100) / 25000)), at = s2 % (n - len - 10);
+        const pop = env(hp(noise(len, s2 % 997), 1200, sr), sr, t => Math.exp(-t * 900));
+        mixInto(body, pop, 0.3 + (s2 % 70) / 100, at);
+      }
+      return loopable(normalize(body, 0.6), sr);
+    };
+    return { L: ch(600), R: ch(601) };
+  },
+  /** A siren somewhere out in the city, passing by: two-tone wail, muffled by buildings and distance. */
+  siren(sr) {
+    const n = Math.round(sr * 9), out = new Float32Array(n);
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr, sweep = 0.5 + 0.5 * Math.sin(t * Math.PI * 2 / 3.2);
+      const dop = 1 + 0.03 * Math.cos(t / 9 * Math.PI);           // a little doppler as it goes by
+      ph += TAU * (640 + 420 * sweep) * dop / sr;
+      const a = Math.sin(Math.PI * t / 9) ** 2;                     // fade in and out
+      out[i] = (Math.sin(ph) + 0.35 * Math.sin(ph * 2) + 0.2 * Math.sin(ph * 3)) * a;
+    }
+    lp(lp(out, 1400, sr), 1100, sr);
+    const L = out.slice(), R = out.slice();
+    for (let i = 0; i < n; i++) { const p = i / n; L[i] *= 1 - p * 0.6; R[i] *= 0.4 + p * 0.6; }
+    return stereoFinish(L, R, sr, 0.5);
+  },
+  /** Thunder: a crack, then a long rolling rumble. */
+  thunder(sr) {
+    const n = Math.round(sr * 6);
+    const ch = seed => {
+      const c = new Float32Array(n);
+      mixInto(c, env(lp(noise(n, seed), 1800, sr), sr, t => Math.min(1, t * 80) * Math.exp(-t * 7)), 0.8);
+      const roll = lp(lp(lp(noise(n, seed + 1), 120, sr), 100, sr), 90, sr);
+      env(roll, sr, t => Math.min(1, t * 3) * Math.exp(-t * 0.65) * (0.7 + 0.3 * Math.sin(t * 5.3 + seed)));
+      mixInto(c, roll, 9);
+      return c;
+    };
+    return stereoFinish(ch(610), ch(611), sr, 0.9);
+  },
+  /** Electric sparks from a snapped cable. */
+  zap(sr) {
+    const n = Math.round(sr * 0.5), out = new Float32Array(n);
+    let sd = 621;
+    for (let i = 0; i < n; i++) { sd = (sd * 16807) % 2147483647; if (sd % 1000 < 60) out[i] = ((sd >> 4) % 2 ? 1 : -1) * Math.exp(-i / sr * 7); }
+    hp(out, 2000, sr);
+    mixInto(out, env(sweepSine(n, sr, 120, 120, 0, { shape: 'saw' }), sr, t => Math.exp(-t * 9)), 0.25);
+    return fadeEdges(normalize(out, 0.7), sr);
+  },
   hum(sr) {
     const n = Math.round(sr * 4), out = new Float32Array(n);
     for (const [f, a] of [[55, 0.5], [110, 0.25], [82.5, 0.15], [55.4, 0.4]]) for (let i = 0; i < n; i++) out[i] += Math.sin(TAU * f * i / sr) * a;
@@ -584,7 +639,7 @@ export class AudioEngine {
   }
 
   /** Start ambient loops (rain, city hum, neon buzz at sign positions) on the ambience bus. */
-  startAmbience(emitters = []) {
+  startAmbience(emitters = [], fires = []) {
     if (!this.enabled || this.ambience) return;
     this.ambience = [];
     const loop = (name, vol, pos) => {
@@ -600,7 +655,16 @@ export class AudioEngine {
       src.start(0, Math.random() * src.buffer.duration);
       this.ambience.push(src);
     };
-    loop('rain', 0.5); loop('hum', 0.22);
+    loop('rain', 0.55); loop('hum', 0.18);
+    for (const f of fires.filter(f => !f.small).slice(0, 6)) loop('fireLoop', 0.5, { x: f.x, y: f.y + 0.3, z: f.z });
+    // the city never sleeps: a siren passes somewhere out there every so often
+    const later = () => setTimeout(() => {
+      if (!this.ctx) return;
+      const a = Math.random() * Math.PI * 2;
+      this.play('siren', { pos: { x: Math.cos(a) * 60, y: 10, z: Math.sin(a) * 80 }, volume: 1.6, ref: 25, rolloff: 0.5, reverb: 0.6, bus: 'amb' });
+      later();
+    }, 25000 + Math.random() * 45000);
+    later();
     for (const e of emitters.slice(0, 8)) loop('buzz', 0.07, e);
   }
 }

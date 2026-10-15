@@ -68,13 +68,18 @@
   const SHOTGUN_RANGE = 35;
   const TRANSFORM_TICKS = 24;          // sword -> shotgun transformation time (can't fire meanwhile)
 
-  const ARENA_HALF = 28;               // perimeter wall centre line
-  const WALL_HEIGHT = 7;
+  // ---------------------------------------------------------------- map size
+  // V4.6 "The Alley": a long back-alley between two run-down megablocks.
+  // The building fronts on both sides are solid; the two open ends are invisible walls.
+  const HALF_X = 16;                   // building fronts at x = +/-16 (alcoves go 3 m deeper)
+  const HALF_Z = 56;                   // invisible walls at z = +/-56 (112 m long)
+  const FACADE_HEIGHT = 9;             // collision height of the building fronts (visuals go higher)
+  const ALCOVE_DEPTH = 3;
 
   // --------------------------------------------------------------------- map
-  // Every solid object in the arena is an axis-aligned box. The client builds
-  // detailed visuals on top of these, the server uses them for collision and
-  // for blocking bullets.
+  // Every solid object is an axis-aligned box. The client builds detailed visuals
+  // on top of these, the server uses them for collision and for blocking bullets.
+  // Kinds that never stop bullets: 'boundary' (invisible wall), 'fence' (chain-link).
   const boxes = [];
   function add(kind, cx, cz, sx, sz, h, y0 = 0, extra = {}) {
     boxes.push(Object.assign({
@@ -86,84 +91,106 @@
   // Adds a box and its 180-degree rotated twin so both halves of the map play the same.
   function addSym(kind, cx, cz, sx, sz, h, y0 = 0, extra = {}) {
     add(kind, cx, cz, sx, sz, h, y0, extra);
-    add(kind, -cx, -cz, sx, sz, h, y0, Object.assign({}, extra, extra.dir ? { dir: [-extra.dir[0], -extra.dir[1]] } : {}));
+    const twin = Object.assign({}, extra);
+    if (extra.dir) twin.dir = [-extra.dir[0], -extra.dir[1]];
+    if (extra.side) twin.side = -extra.side;
+    add(kind, -cx, -cz, sx, sz, h, y0, twin);
   }
 
-  // Perimeter
-  const A = ARENA_HALF;
-  add('perimeter', 0, -A, 2 * A + 1, 1, WALL_HEIGHT);
-  add('perimeter', 0, A, 2 * A + 1, 1, WALL_HEIGHT);
-  add('perimeter', -A, 0, 1, 2 * A + 1, WALL_HEIGHT);
-  add('perimeter', A, 0, 1, 2 * A + 1, WALL_HEIGHT);
+  // Building fronts. Defined for the right side (x > 0) and mirrored; recessed alcoves
+  // (loading bays / doorways) break them up and give extra cover.
+  const ALCOVES_RIGHT = [-42, -10, 34];            // alcove centre z on the right-hand front (left side is mirrored)
+  const ALCOVE_W = 5.5, END = HALF_Z + 30;         // fronts continue into the fog past the invisible walls
+  (function fronts() {
+    let z = -END;
+    for (const zc of ALCOVES_RIGHT) {
+      const a0 = zc - ALCOVE_W / 2, a1 = zc + ALCOVE_W / 2;
+      addSym('facade', HALF_X + 0.5, (z + a0) / 2, 1, a0 - z, FACADE_HEIGHT, 0, { side: 1 });
+      // the alcove: back wall + two side walls, with a lintel over the opening
+      addSym('facade', HALF_X + ALCOVE_DEPTH + 0.5, zc, 1, ALCOVE_W, FACADE_HEIGHT, 0, { side: 1, alcove: true });
+      addSym('facade', HALF_X + ALCOVE_DEPTH / 2, a0 - 0.25, ALCOVE_DEPTH, 0.5, FACADE_HEIGHT, 0, { side: 1, alcove: true });
+      addSym('facade', HALF_X + ALCOVE_DEPTH / 2, a1 + 0.25, ALCOVE_DEPTH, 0.5, FACADE_HEIGHT, 0, { side: 1, alcove: true });
+      addSym('facade', HALF_X + 0.5, zc, 1, ALCOVE_W, FACADE_HEIGHT - 3.2, 3.2, { side: 1, lintel: true });
+      z = a1;
+    }
+    addSym('facade', HALF_X + 0.5, (z + END) / 2, 1, END - z, FACADE_HEIGHT, 0, { side: 1 });
+  })();
+  // The open ends of the alley: invisible walls (players stop, bullets fly on into the fog)
+  addSym('boundary', 0, HALF_Z + 0.5, 2 * HALF_X, 1, 14);
 
-  // Central reactor core
-  add('core', 0, 0, 4, 4, 5.5);
+  // Burnt-out bus blocking the middle of the alley
+  add('bus', 0, 0, 2.8, 11, 3.0);
 
-  // Buildings
-  addSym('block', -14, -12, 6, 5, 4.5);
-  addSym('block', 14, -13, 5, 7, 4);
-  addSym('block', -20.5, 0, 3, 6, 3.8);
-  addSym('tower', -6.5, -6.5, 2.4, 2.4, 4.2);
+  // Wrecked cars
+  addSym('car', -7.5, 9, 2.0, 4.4, 1.45);
+  addSym('car', 7, 31, 4.4, 2.0, 1.45);
+  addSym('car', -5, 47, 2.0, 4.4, 1.45);
 
-  // Mid lanes cover walls
-  addSym('wall', -8, 0, 1.2, 7, 2.6);
-  addSym('wall', 0, -9, 7, 1.2, 2.6);
-  addSym('wall', 0, -18.5, 8, 1.6, 3);
+  // Dumpsters against the building fronts (1.25 m: you can jump onto them)
+  addSym('dumpster', HALF_X - 0.6, 4, 1.1, 2.2, 1.25, 0, { side: 1 });
+  addSym('dumpster', HALF_X - 0.6, 41, 1.1, 2.2, 1.25, 0, { side: 1 });
+  addSym('dumpster', -HALF_X + 0.6, 16, 1.1, 2.2, 1.25, 0, { side: -1 });
+
+  // Concrete road barriers (1 m, jumpable)
+  addSym('barrier', 6.5, 4, 0.6, 3.2, 1.0);
+  addSym('barrier', -9, 26, 3.2, 0.6, 1.0);
+  addSym('barrier', 2.5, 38, 3.2, 0.6, 1.0);
+  addSym('barrier', 10.5, 50, 0.6, 3.2, 1.0);
+
+  // Chain-link fence: blocks people, not bullets
+  addSym('fence', -11, 36, 10, 0.12, 2.6);
 
   // Jumpable crates (1.1 m) and a few stacks
   addSym('crate', -4, -5, 1.4, 1.4, 1.1);
-  addSym('crate', -11, 5, 1.4, 1.4, 1.1);
-  addSym('crate', -11.2, 5.1, 1.2, 1.2, 1.0, 1.1);
-  addSym('crate', -3, 14, 1.4, 1.4, 1.1);
-  addSym('crate', -22.5, -8, 1.4, 1.4, 1.1);
-  addSym('crate', -22.5, 8, 1.4, 1.4, 1.1);
-  addSym('crate', -9.5, -21.5, 1.4, 1.4, 1.1);
-  addSym('crate', -8.1, -21.6, 1.2, 1.2, 1.1);
+  addSym('crate', -11, 18, 1.4, 1.4, 1.1);
+  addSym('crate', -11.2, 18.1, 1.2, 1.2, 1.0, 1.1);
+  addSym('crate', 4.5, 17, 1.4, 1.4, 1.1);
+  addSym('crate', 12, 11.5, 1.4, 1.4, 1.1);
+  addSym('crate', -2, 33, 1.4, 1.4, 1.1);
+  addSym('crate', -0.6, 33.1, 1.2, 1.2, 1.1);
+  addSym('crate', 7.5, 44, 1.4, 1.4, 1.1);
+  addSym('crate', -9.5, 52, 1.4, 1.4, 1.1);
 
-  // Barrels (collide as boxes, drawn as cylinders)
-  addSym('barrel', -5.6, -3.4, 0.8, 0.8, 1.2);
-  addSym('barrel', -17, -4.2, 0.8, 0.8, 1.2);
-  addSym('barrel', -17.9, -4.6, 0.8, 0.8, 1.2);
-  addSym('barrel', 9, -17, 0.8, 0.8, 1.2);
-  addSym('barrel', -24.8, -16, 0.8, 0.8, 1.2);
+  // Barrels (collide as boxes, drawn as cylinders). fire: a burning trash barrel.
+  addSym('barrel', -6, 3, 0.8, 0.8, 1.2, 0, { fire: true });
+  addSym('barrel', 11.5, 23, 0.8, 0.8, 1.2, 0, { fire: true });
+  addSym('barrel', -13.8, 31, 0.8, 0.8, 1.2);
+  addSym('barrel', -8.6, 40.5, 0.8, 0.8, 1.2, 0, { fire: true });
+  addSym('barrel', -9.4, 40.9, 0.8, 0.8, 1.2);
+  addSym('barrel', 3.6, 51, 0.8, 0.8, 1.2);
 
-  // Street vending machines against the north/south walls (front faces into the arena)
-  addSym('vending', -7, -26.95, 1.2, 0.9, 2.1, 0, { dir: [0, 1] });
-  addSym('vending', 18.5, -26.95, 1.2, 0.9, 2.1, 0, { dir: [0, 1] });
+  // Shanty shack (homeless camp at the far end)
+  addSym('shack', -13.4, 46, 3, 2.8, 2.4, 0, { side: -1 });
 
-  // Elevated catwalks along the perimeter with staircases leading up to them
+  // Street vending machines against the right-hand front (front faces into the alley)
+  addSym('vending', HALF_X - 0.45, 26.4, 0.9, 1.2, 2.1, 0, { dir: [-1, 0] });
+  addSym('vending', HALF_X - 0.45, 27.8, 0.9, 1.2, 2.1, 0, { dir: [-1, 0] });
+
+  // Fire escapes along the building fronts, joined by footbridges across the alley.
   const CATWALK_Y = 3.05, CATWALK_TOP = 3.3, STEP_RISE = 0.3, STEP_RUN = 0.42;
-  function catwalkWithStairs(x0, x1, z0, z1, stairX, stairZ0, stairZ1, stairDir) {
-    // catwalk deck
-    addSym('catwalk', (x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0, CATWALK_TOP - CATWALK_Y, CATWALK_Y);
-    // stairs descend from stairX along +/-x
-    const steps = Math.round(CATWALK_TOP / STEP_RISE) - 1;
-    for (let i = 0; i < steps; i++) {
+  const STEPS = Math.round(CATWALK_TOP / STEP_RISE) - 1;
+  /** Stairs along z: the top step starts at z0 and they descend in direction dir (+1/-1). */
+  function stairsZ(x0, x1, z0, dir) {
+    for (let i = 0; i < STEPS; i++) {
       const top = CATWALK_TOP - STEP_RISE * (i + 1);
-      const sx0 = stairX + stairDir * STEP_RUN * i;
-      const cx = sx0 + stairDir * STEP_RUN / 2;
-      addSym('stair', cx, (stairZ0 + stairZ1) / 2, STEP_RUN, stairZ1 - stairZ0, top);
+      addSym('stair', (x0 + x1) / 2, z0 + dir * (STEP_RUN * i + STEP_RUN / 2), x1 - x0, STEP_RUN, top, 0, { alongZ: true });
     }
   }
-  // North-west catwalk hugging the north wall, stairs heading east.
-  catwalkWithStairs(-25, -15, -27.5, -24, -15, -27.5, -25.9, 1);
-  // West catwalk hugging the west wall (south half), stairs heading north (along -z) are
-  // expressed with a rotated helper to keep code compact.
-  (function westCatwalk() {
-    addSym('catwalk', -25.75, 19, 3.5, 10, CATWALK_TOP - CATWALK_Y, CATWALK_Y);
-    const steps = Math.round(CATWALK_TOP / STEP_RISE) - 1;
-    for (let i = 0; i < steps; i++) {
-      const top = CATWALK_TOP - STEP_RISE * (i + 1);
-      const cz = 14 - STEP_RUN * i - STEP_RUN / 2;
-      addSym('stair', -26.7, cz, 1.6, STEP_RUN, top);
-    }
-  })();
+  const deck = (x0, x1, z0, z1, extra = {}) => addSym('catwalk', (x0 + x1) / 2, (z0 + z1) / 2, x1 - x0, z1 - z0, CATWALK_TOP - CATWALK_Y, CATWALK_Y, extra);
+  // right-hand fire escape, stairs coming down towards the middle of the alley
+  deck(HALF_X - 2.4, HALF_X, 14, 30, { side: 1 });
+  stairsZ(HALF_X - 1.6, HALF_X, 14, -1);
+  // footbridge across the alley
+  deck(-HALF_X + 2.4, HALF_X - 2.4, 21, 23.2, { bridge: true });
+  // landing on the left-hand front with its own stairs
+  deck(-HALF_X, -HALF_X + 2.4, 18.5, 25.5, { side: -1 });
+  stairsZ(-HALF_X, -HALF_X + 1.6, 25.5, 1);
 
-  // Spawn points (validated by the test-suite to be clear of geometry)
-  const spawns = [
-    [-18, -20], [18, 20], [-24, 2], [24, -2], [-10, -14], [10, 14], [-15, 21],
-    [15, -21], [-3.5, -12.5], [3.5, 12.5], [-12, -2], [12, 2], [-24, -21], [24, 21]
-  ].map(([x, z]) => ({ x, z }));
+  for (const b of boxes) b.solid = b.kind !== 'boundary' && b.kind !== 'fence';
+
+  // Spawn points (validated by the test-suite to be clear of geometry); mirrored like the map
+  const spawns = [[8, 53], [-8, 53], [-12, 40], [3, 27], [-4, 19], [9, 10], [-9, 1]]
+    .flatMap(([x, z]) => [{ x, z }, { x: -x, z: -z }]);
 
   // ------------------------------------------------------------------ helpers
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -302,9 +329,9 @@
     }
     if (grounded && !wasGrounded && vyBefore < -4) ev.land = true;
     p.og = grounded;
-    // hard safety clamp inside the perimeter
-    const lim = ARENA_HALF - 0.5 - PLAYER_RADIUS;
-    p.x = clamp(p.x, -lim, lim); p.z = clamp(p.z, -lim, lim);
+    // hard safety clamp inside the playable area (alcoves included)
+    const limX = HALF_X + ALCOVE_DEPTH - PLAYER_RADIUS, limZ = HALF_Z - PLAYER_RADIUS;
+    p.x = clamp(p.x, -limX, limX); p.z = clamp(p.z, -limZ, limZ);
 
     if (weapon === WEAPON.RIFLE) {
       if ((b & BTN.RELOAD) && p.reload === 0 && p.ammo < MAG_SIZE) { p.reload = RELOAD_TICKS; ev.reloadStart = true; }
@@ -354,6 +381,7 @@
   function raycastWorld(o, d, maxT = MAX_RANGE) {
     let best = null;
     for (let i = 0; i < boxes.length; i++) {
+      if (!boxes[i].solid) continue; // invisible walls and chain-link fences don't stop bullets
       const h = rayBox(o, d, boxes[i], best ? best.t : maxT);
       if (h && (!best || h.t < best.t)) best = { t: h.t, n: h.n, kind: boxes[i].kind, index: i };
     }
@@ -466,7 +494,7 @@
     CLASSES, WEAPON, classOf, weaponOf, grantShotgun, SHIELD_REGEN_DELAY_MS, SHIELD_REGEN_PER_S,
     SWORD_TICKS, SWORD_RANGE, SWORD_DAMAGE, SHOTGUN_SHELLS, SHOTGUN_TICKS, SHOTGUN_PELLETS, SHOTGUN_RANGE, TRANSFORM_TICKS,
     pelletDirs, swordReach,
-    ARENA_HALF, WALL_HEIGHT, CATWALK_TOP, boxes, spawns,
+    HALF_X, HALF_Z, FACADE_HEIGHT, ALCOVE_DEPTH, CATWALK_TOP, boxes, spawns,
     newPlayerState, copyState, stepPlayer, isFree, aimDirection, eyeOf,
     rayBox, raycastWorld, rayPlayer, damageFor, clamp
   };

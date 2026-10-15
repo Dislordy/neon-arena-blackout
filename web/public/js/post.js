@@ -42,15 +42,15 @@ const GradeShader = {
       }
       col += min(dot(st, vec3(0.33)), 6.0) * vec3(0.35, 0.6, 1.0) * 0.045;
       #endif
-      // megacity grade: teal-shadowed blacks, warm sodium highlights, punchier saturation
+      // harsh back-alley grade: grimy green-grey shadows, dirty sodium highlights, drained colour
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      col = mix(col, col * vec3(0.85, 1.0, 1.12), 1.0 - smoothstep(0.0, 0.35, l));
-      col = mix(col, col * vec3(1.08, 1.0, 0.86), smoothstep(0.6, 2.0, l));
-      col = max(mix(vec3(l), col, 1.18), 0.0);
-      col += vec3(0.004, 0.006, 0.012) * (1.0 - smoothstep(0.0, 0.08, l));
+      col = mix(col, col * vec3(0.9, 1.0, 0.93), 1.0 - smoothstep(0.0, 0.35, l));
+      col = mix(col, col * vec3(1.1, 0.98, 0.8), smoothstep(0.5, 2.0, l));
+      col = max(mix(vec3(l), col, 0.9), 0.0);
+      col += vec3(0.006, 0.006, 0.004) * (1.0 - smoothstep(0.0, 0.08, l));
       // vignette (+ red pulse when hurt / low health)
       float vig = smoothstep(0.85, 0.2, r2 * 2.2);
-      col *= mix(0.55, 1.0, vig);
+      col *= mix(0.4, 1.0, vig);
       float pulse = lowHp * (0.6 + 0.4 * sin(time * 6.0));
       float edge = smoothstep(0.18, 0.75, r2 * 2.0);
       col = mix(col, vec3(0.55, 0.02, 0.05) * (0.6 + l), clamp(edge * (damage * 0.55 + pulse * 0.45), 0.0, 0.6));
@@ -60,7 +60,7 @@ const GradeShader = {
       col = mix(col, vec3(l) * vec3(1.0, 0.85, 0.85), dead * 0.8);
       // film grain + faint scanlines
       float g = h(vUv * resolution + fract(time) * 100.0) - 0.5;
-      col += g * 0.025 * (1.0 + damage);
+      col += g * 0.035 * (1.0 + damage);
       col *= 0.985 + 0.015 * sin(vUv.y * resolution.y * 1.5);
       gl_FragColor = vec4(max(col, 0.0), 1.0);
     }`
@@ -77,7 +77,7 @@ export function createPost(renderer, scene, camera, vmScene, vmCamera, Q) {
   composer.addPass(vm);
   let bloom = null;
   if (Q.bloom) {
-    bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.7, 0.55, 0.85);
+    bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.5, 0.5, 0.9);
     composer.addPass(bloom);
   }
   const grade = new ShaderPass(GradeShader);

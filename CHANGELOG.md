@@ -1,5 +1,20 @@
 # Changelog — Neon Arena: Blackout
 
+## V4.6 — The Alley
+- New map: a long back-alley between two rotting megablocks — 32 m × 112 m (twice as long as the old arena).
+  Burnt-out bus in the middle, wrecked cars, dumpsters, concrete barriers, crates, burning barrels,
+  a chain-link fence with razor wire (stops people, not bullets), loading-bay alcoves, a shanty camp,
+  and fire escapes joined by footbridges across the alley.
+- No more arena walls: the sides are building fronts and the two ends are **invisible walls**; the alley keeps
+  going into the fog past an abandoned police cordon.
+- Harsher atmosphere: thick dirty smog, starless soot sky with lightning and thunder, dying sodium street lamps,
+  flickering signs (many half dead), barrel fires with embers and smoke, steam from manholes, a snapped cable that
+  sparks, a police drone sweeping the alley with a searchlight, grim graffiti and ads ("WE BUY ORGANS · CASH TODAY"),
+  trash everywhere, distant sirens. Drained, gritty colour grade.
+- Lighter graphics: default quality is now **Medium** on computers (Low on phones), less bloom, fewer real lights
+  (each quality level has a light budget; the rest are glow-only).
+- Unreal kit: `alley_map.json` export of the new map.
+
 ## V4.5 — Classes & shields
 - Pick a class in the lobby (or from the ☰ menu; it switches on your next respawn):
   - **Soldier** — the original runner: VX-9 rifle, 100 HP, one dash.

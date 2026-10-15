@@ -23,8 +23,8 @@ const PRESETS = {
 };
 const store = { get(k, d) { try { const v = localStorage.getItem('nab.' + k); return v === null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem('nab.' + k, JSON.stringify(v)); } catch { /* storage unavailable */ } } };
 const isTouch = matchMedia('(pointer:coarse)').matches;
-const qualityName = new URLSearchParams(location.search).get('quality') || store.get('quality', isTouch ? 'low' : 'high');
-const Q = PRESETS[qualityName] || PRESETS.high;
+const qualityName = new URLSearchParams(location.search).get('quality') || store.get('quality', isTouch ? 'low' : 'medium');
+const Q = PRESETS[qualityName] || PRESETS.medium;
 let sensitivity = store.get('sens', 1);
 const audio = new AudioEngine();
 audio.volume = store.get('vol', 0.8);
@@ -121,7 +121,7 @@ document.addEventListener('mousemove', e => {
 document.addEventListener('mousedown', e => { if (!pointerLocked) return; if (e.button === 0) mouseDown = true; if (e.button === 2) aimDown = true; });
 document.addEventListener('mouseup', e => { if (e.button === 0) mouseDown = false; if (e.button === 2) aimDown = false; });
 document.addEventListener('contextmenu', e => e.preventDefault());
-document.addEventListener('pointerdown', () => { audio.init(); if (world && audio.enabled) audio.startAmbience(world.neonEmitters); }, { capture: true });
+document.addEventListener('pointerdown', () => { audio.init(); if (world && audio.enabled) audio.startAmbience(world.neonEmitters, world.fireSpots); }, { capture: true });
 $('dashBtn').onclick = () => { dashQueued = true; };
 $('shieldBtn').onclick = () => ability('shield');
 $('scanBtn').onclick = () => ability('scan');
@@ -355,7 +355,7 @@ socket.on('shot', shot => {
     if (closest.distanceTo(eye) < 1.6) audio.bulletCrack(closest);
   }
 });
-const impactSound = k => (k === 'floor' ? 'impactWater' : k === 'perimeter' ? 'impactConcrete' : 'impactMetal');
+const impactSound = k => (k === 'floor' ? 'impactWater' : k === 'facade' || k === 'barrier' || k === 'shack' ? 'impactConcrete' : 'impactMetal');
 const EMBER = 0xff7a3a;
 function remoteShotgun(shot) {
   const shooter = avatars.get(shot.id), r = remotes.get(shot.id);
@@ -668,10 +668,11 @@ function updateCamera(dt, alpha) {
 let freeCam = null; // debug: { pos:[x,y,z], look:[x,y,z] } pins the menu camera
 function attractCamera(dt) {
   if (freeCam) { camera.position.set(...freeCam.pos); camera.lookAt(...freeCam.look); return; }
-  attractT += dt * 0.05;
-  const r = 19, a = attractT;
-  camera.position.set(Math.cos(a) * r, 6 + Math.sin(a * 2) * 1.5, Math.sin(a) * r);
-  camera.lookAt(0, 2, 0);
+  // slow, uneasy drift down the alley
+  attractT += dt * 0.025;
+  const a = attractT, z = Math.sin(a) * (Sim.HALF_Z - 12), dir = Math.cos(a) >= 0 ? 1 : -1;
+  camera.position.set(Math.sin(a * 2.3) * 5, 3.2 + Math.sin(a * 3.1) * 0.8, z);
+  camera.lookAt(Math.sin(a * 1.7) * 3, 2.2, z + dir * 18);
 }
 
 // ------------------------------------------------------------------ main loop
@@ -754,6 +755,9 @@ async function boot() {
   world = createWorld(renderer, scene, Q);
   fx = new Effects(scene, Q);
   fx.onShellBounce = (p, n) => audio.play('tink', { pos: p, volume: 0.25 / (n + 1), rate: 0.9 + Math.random() * 0.3, ref: 1.2 });
+  fx.setVents(world.ventSpots); fx.setFires(world.fireSpots); fx.setSparks(world.sparkSpots);
+  fx.onSpark = p => audio.play('zap', { pos: p, volume: 0.9, ref: 2, reverb: 0.2 });
+  world.onThunder = delay => setTimeout(() => audio.play('thunder', { volume: 0.85, reverb: 0.5, bus: 'amb', vary: 0.1 }), delay * 1000);
   weapon = new Weapon(scene.environment);
   weapon.events = {
     start: () => audio.play('magOut', { volume: 0.25, rate: 1.3, reverb: 0.05 }),

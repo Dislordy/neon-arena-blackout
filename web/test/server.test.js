@@ -98,7 +98,7 @@ async function test(name, fn) {
   });
 
   await test('clear line of fire hits; shield soaks first; five body shots eliminate a soldier', async () => {
-    place(pa, -18, -10, 0); place(pb, -18, -20, Math.PI);
+    place(pa, -12, -26, 0); place(pb, -12, -36, Math.PI);
     await wait(80);
     a.hits.length = 0; b.hurts.length = 0;
     const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 10); // aim at the chest
@@ -119,7 +119,7 @@ async function test(name, fn) {
   });
 
   await test('server-side fire-rate limit cannot be bypassed', async () => {
-    place(pa, -18, -10, 0);
+    place(pa, -12, -26, 0);
     const ammo0 = pa.sim.ammo;
     a.send(10, { b: Sim.BTN.FIRE }); // 10 ticks of fire held -> at most 1 shot
     await wait(300);
@@ -135,18 +135,18 @@ async function test(name, fn) {
   });
 
   await test('lag compensation: shots are resolved against rewound positions', async () => {
-    place(pa, -18, -10, 0); place(pb, -18, -20, 0);
+    place(pa, -12, -26, 0); place(pb, -12, -36, 0);
     // build 300 ms of history with B standing at z=-20, then move B sideways instantly
     const t0 = require('perf_hooks').performance.now();
     await wait(250);
-    pb.sim.x = -14; // B is no longer in the line of fire "now"
+    pb.sim.x = -8; // B is no longer in the line of fire "now"
     a.hits.length = 0;
     const pitch = Math.atan2(1.15 - Sim.EYE_HEIGHT, 10);
     a.send(1, { yaw: 0, pitch, b: Sim.BTN.FIRE, vt: t0 + 100 }); // client was viewing the past
     await wait(150);
     assert.strictEqual(a.hits.length, 1, 'rewound shot should hit');
     // A view time far in the past is clamped to MAX_REWIND_MS -> no hit
-    place(pa, -18, -10, 0); pb.history = []; pb.sim.x = -14; pb.hp = 100;
+    place(pa, -12, -26, 0); pb.history = []; pb.sim.x = -8; pb.hp = 100;
     await wait(400); a.hits.length = 0;
     a.send(1, { yaw: 0, pitch, b: Sim.BTN.FIRE, vt: 0 });
     await wait(150);
@@ -154,7 +154,7 @@ async function test(name, fn) {
   });
 
   await test('energy shield regenerates after a few seconds without damage', async () => {
-    place(pb, -18, -20, 0);
+    place(pb, -12, -36, 0);
     pb.shield = 10; pb.hurtAt = require('perf_hooks').performance.now() - Sim.SHIELD_REGEN_DELAY_MS - 10;
     await wait(500);
     assert.ok(pb.shield > 18 && pb.shield <= 50, 'shield=' + pb.shield);
@@ -164,7 +164,7 @@ async function test(name, fn) {
   });
 
   await test('knight: more health, sword kills, then the sword becomes a shotgun', async () => {
-    place(pa, -18, -18, 0, 2); place(pb, -18, -20, Math.PI);
+    place(pa, -12, -34, 0, 2); place(pb, -12, -36, Math.PI);
     assert.strictEqual(pa.hp, 130);
     await wait(80);
     a.hits.length = 0;
@@ -179,7 +179,7 @@ async function test(name, fn) {
   });
 
   await test('knight shotgun: pellets hit hard up close and shells run out', async () => {
-    place(pa, -18, -16, 0, 2); place(pb, -18, -20, Math.PI);
+    place(pa, -12, -32, 0, 2); place(pb, -12, -36, Math.PI);
     Sim.grantShotgun(pa.sim); pa.sim.fireCd = 0;
     await wait(80);
     a.hits.length = 0; b.shots.length = 0;
