@@ -1,4 +1,4 @@
-# NEON ARENA: BLACKOUT — V4 · Build 4
+# NEON ARENA: BLACKOUT — V5 · Motion Pass
 
 **▶ Play now: https://neon-arena-blackout.onrender.com** (free hosting — if nobody has played for a while, the first load takes about a minute)
 
@@ -11,7 +11,7 @@ and punchy energy-rifle gunplay.
 | [`unreal/`](unreal/) | The **Unreal Engine 5 / Lyra** rebuild: starter kit, plan and milestones. |
 | [`archive/v1-prototype/`](archive/v1-prototype/) | The original V1 prototype, kept for history. |
 
-See [`CHANGELOG.md`](CHANGELOG.md) for V1 → V4.
+See [`CHANGELOG.md`](CHANGELOG.md) for V1 → V5.
 
 ## Play the web game
 ```bash

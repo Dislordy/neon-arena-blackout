@@ -162,3 +162,12 @@
 
 ## V1 — Prototype
 - Original browser prototype (client-simulated movement). Kept in `archive/v1-prototype/`.
+
+
+## V5 — Motion Pass (2026-10-16)
+
+- Added damped character movement lean, lateral torso counter-rotation, head stabilisation and subtle shoulder counter-sway for more natural locomotion.
+- Added a landing compression/recovery pulse to the player rig without changing the Rune-Warden monster animation.
+- Refined first-person camera bob, strafe roll, sprint lean and landing rebound to make movement feel weightier while keeping mouse aim responsive.
+- Kept the existing authoritative multiplayer simulation, weapons, map, audio, and monster model intact.
+- The camera lean only rolls and bobs the view (no pitch offset), so the crosshair always matches where the server aims the shot.

@@ -27,6 +27,7 @@ The project has **two tracks** in one repository:
 | V4.9.1 | Rune-Warden animation pass: roar / chest-pound / ground-smash entrance, brute gait, stomps, landing slam, revert shrink |
 | V4.10 | Rune-Warden driven by imported creature animations (`models/warden.glb`, skeleton only) with our own body on the bones |
 | V4.11 | Functional recoil (aim climb + settle), Knight Ashen Guard (block/parry/stagger/riposte) and Cinder Crash (4-kill leap slam) |
+| V5 | Motion Pass (started in ChatGPT): damped body lean, strafe counter-sway, landing compression, weightier camera bob/roll |
 
 Details: `CHANGELOG.md`. Third-party assets and their authors: `CREDITS.md` (keep it up to date).
 

@@ -1,9 +1,9 @@
-# NEON ARENA: BLACKOUT — Web (V4 · Build 4)
+# NEON ARENA: BLACKOUT — Web (V5 · Motion Pass)
 
 A cyberpunk first-person multiplayer shooter for the browser, built with Three.js, Express and Socket.IO.
 This is the web track of the project (see the repository root `README.md` for the Unreal track).
 It started as the V2 rework of the V1 prototype — realistic rendering, real gunplay and an authoritative
-multiplayer server — and V4 adds the neon megacity art pass, cyber-knight runners, the machined VX-9 rifle,
+multiplayer server — and V5 adds a refined character/camera animation pass; V4 added the neon megacity art pass, cyber-knight runners, the machined VX-9 rifle,
 one-click hosting (`render.yaml`) and a Chromebook launcher (`scripts/play.sh`).
 
 ## Requirements

@@ -319,6 +319,8 @@ export class Avatar {
     this.tag = nameSprite(name, '#' + this.color.getHexString()); this.tag.position.y = 2.15; g.add(this.tag);
 
     this.walkPhase = 0; this.moveBlend = 0; this.airBlend = 0; this.shieldK = 0; this.time = 0;
+    // V5 motion rig: damped lean, landing compression and upper-body counter-sway.
+    this.motionLean = 0; this.motionStrafe = 0; this.landPulse = 0; this.wasGrounded = true;
     this.speed = 0; this.flinchT = 0; this.flinchSide = 0; this.deathT = -1; this.wasAlive = true;
     this.onDissolve = null; // set by the game to spawn embers when a body dissolves
   }
@@ -394,7 +396,15 @@ export class Avatar {
     const fwd = -(st.vx * sy + st.vz * cy), side = st.vx * cy - st.vz * sy;
     const speed = Math.hypot(st.vx, st.vz);
     this.speed = speed;
-    this.moveBlend += ((st.og ? Math.min(1, speed / 6) : 0) - this.moveBlend) * (1 - Math.exp(-dt * 10));
+    // Landing gets a crisp, damped compression rather than an instant pose snap.
+    if (!this.wasGrounded && st.og) this.landPulse = Math.min(1.25, 0.35 + speed * 0.075);
+    this.wasGrounded = !!st.og;
+    this.landPulse *= Math.exp(-dt * 8.5);
+    const leanTarget = st.dash ? -0.22 : -Math.min(1, speed / 7) * 0.075;
+    this.motionLean += (leanTarget - this.motionLean) * (1 - Math.exp(-dt * 9));
+    const strafeTarget = THREE.MathUtils.clamp(side / 6, -1, 1);
+    this.motionStrafe += (strafeTarget - this.motionStrafe) * (1 - Math.exp(-dt * 11));
+    this.moveBlend +=((st.og ? Math.min(1, speed / 6) : 0) - this.moveBlend) * (1 - Math.exp(-dt * 10));
     this.airBlend += ((st.og ? 0 : 1) - this.airBlend) * (1 - Math.exp(-dt * 10));
     const dir = fwd >= -0.3 ? 1 : -1;
     this.walkPhase += dt * speed * 1.55 * dir;
@@ -402,20 +412,25 @@ export class Avatar {
     for (let i = 0; i < 2; i++) {
       const L = this.legs[i], ph = p + i * Math.PI;
       L.hip.rotation.x = Math.sin(ph) * 0.65 * k + this.airBlend * (i ? 0.7 : 0.3);
-      L.hip.rotation.z = THREE.MathUtils.clamp(side / 6, -1, 1) * 0.15 * k * (i ? 1 : -1);
+      L.hip.rotation.z = this.motionStrafe * 0.19 * k * (i ? 1 : -1);
       L.knee.rotation.x = -(Math.max(0, Math.sin(ph + 1.3)) * 0.9 * k + this.airBlend * (i ? 1.2 : 0.6));
     }
     const breathe = Math.sin(this.time * 1.9) * 0.006 * (1 - k);
     this.flinchT = Math.max(0, this.flinchT - dt * 5);
     const fl = this.flinchT * this.flinchT;
-    this.hips.position.y = 0.95 - Math.abs(Math.cos(p)) * 0.04 * k - this.airBlend * 0.05;
-    this.hips.rotation.y = Math.sin(p) * 0.08 * k;
+    this.hips.position.y = 0.95 - Math.abs(Math.cos(p)) * 0.045 * k - this.airBlend * 0.05 - this.landPulse * 0.075;
+    this.hips.scale.y = 1 - this.landPulse * 0.055;
+    this.hips.rotation.y = Math.sin(p) * 0.1 * k;
+    this.hips.rotation.z = -this.motionStrafe * 0.045 * k;
     this.torso.position.y = 0.06 + breathe;
-    this.torso.rotation.y = -Math.sin(p) * 0.1 * k + fl * 0.25 * this.flinchSide;
-    this.torso.rotation.z = -THREE.MathUtils.clamp(side / 6, -1, 1) * 0.06 + fl * 0.12 * this.flinchSide;
-    this.torso.rotation.x = st.pitch * 0.55 - 0.05 * k - (st.dash ? 0.25 : 0) + fl * 0.25;
-    this.head.rotation.x = st.pitch * 0.35 - fl * 0.2;
-    this.armsG.rotation.x = st.pitch * 0.45; // arms + rifle carry the rest of the aim pitch
+    this.torso.rotation.y = -Math.sin(p) * 0.12 * k + fl * 0.25 * this.flinchSide - this.motionStrafe * 0.07 * k;
+    this.torso.rotation.z = -this.motionStrafe * 0.095 * k + fl * 0.12 * this.flinchSide;
+    this.torso.rotation.x = st.pitch * 0.55 - 0.05 * k + this.motionLean + this.landPulse * 0.12 - (st.dash ? 0.08 : 0) + fl * 0.25;
+    // Head stabilises against body movement, making aim feel deliberate instead of robotic.
+    this.head.rotation.x = st.pitch * 0.35 - fl * 0.2 - this.motionLean * 0.22;
+    this.head.rotation.y = -this.motionStrafe * 0.09 * k + Math.sin(this.time * 1.15) * 0.018 * (1 - k);
+    this.armsG.rotation.x = st.pitch * 0.45 + this.landPulse * 0.09; // arms + rifle carry the rest of the aim pitch
+    this.armsG.rotation.z = this.motionStrafe * 0.055 * k;
     if (this.cls === 2) this.setShotgun(!!st.shotgun);
     if (this.warden) this.updateWarden(dt, st, p, k, fwd, side);
     if (this.swingT >= 0 && this.cls === 2) { // raise, cut across, recover
