@@ -1,5 +1,12 @@
 # Changelog — Neon Arena: Blackout
 
+## V6 (in progress) — Rebuild, brick by brick
+- **Brick 1 · server**: the 1,000-line `server.js` is now `web/server/` — config, rooms, lag compensation, combat, the
+  60 Hz loop and sockets in their own files, and each class power (Knight, Rune-Warden, Obliteration Beam + Beam Clash)
+  in `server/powers/`, plugged in through hooks. Gameplay unchanged.
+- **Brick 2 · browser**: the 1,100-line `main.js` is now 160 lines (boot + frame loop); the rest is in `public/js/game/`
+  and each power's effects, sounds and HUD meter in `public/js/powers/`. Gameplay unchanged.
+
 ## V4.11 — Real recoil + the Knight's Ashen Guard and Cinder Crash
 - **Recoil that matters** (all guns): part of every kick snaps back (camera jolt), the rest stays on your aim, so long
   rifle bursts climb (~6° over 10 shots) and you pull down to control them; when you stop firing, half of the climb

@@ -28,6 +28,7 @@ The project has **two tracks** in one repository:
 | V4.10 | Rune-Warden driven by imported creature animations (`models/warden.glb`, skeleton only) with our own body on the bones |
 | V4.11 | Functional recoil (aim climb + settle), Knight Ashen Guard (block/parry/stagger/riposte) and Cinder Crash (4-kill leap slam) |
 | V5 | Motion Pass (started in ChatGPT): damped body lean, strafe counter-sway, landing compression, weightier camera bob/roll |
+| V6 (in progress) | Rebuild "brick by brick": server and client split into modules, one file per class power (same gameplay) |
 
 Details: `CHANGELOG.md`. Third-party assets and their authors: `CREDITS.md` (keep it up to date).
 
@@ -52,14 +53,21 @@ npm test                               # sim unit tests + server integration tes
   Map = "The Alley" (`HALF_X` 16, `HALF_Z` 56). Box kinds `boundary` (invisible wall) and `fence` don't stop bullets (`box.solid`).
   Shotgun pellets are seeded by the input sequence number (`pelletDirs`) so client and server agree.
   Loaded by the server (`require`) and the browser (`<script>`, `window.NeonSim`). Any map/gameplay change goes here first.
-- `server.js` — authoritative: clients send only inputs; server runs 60 Hz ticks, owns position/ammo/HP/score,
-  lag compensation (≤300 ms rewind), input-budget anti-speedhack, 30 Hz snapshots.
-- `public/js/` — `main.js` (input, prediction/reconciliation, interpolation, loop), `world.js` (arena, lights, reflections, fog),
+- `server.js` (entry) + `server/` — authoritative: clients send only inputs; server runs 60 Hz ticks, owns position/ammo/HP/score,
+  lag compensation (≤300 ms rewind), input-budget anti-speedhack, 30 Hz snapshots. Files: `config.js`, `core.js` (HTTP/Socket.IO),
+  `rooms.js`, `lagcomp.js`, `combat.js` (damage/kills), `loop.js` (tick + snapshots), `sockets.js`, `hooks.js` (extension points),
+  `powers/` (`knight.js`, `warden.js`, `obliteration.js` incl. Beam Clash). A class power hooks in via `register()` in `server/index.js`.
+- `public/js/main.js` — boot + frame loop only. `public/js/game/`: `ctx.js` (shared state `G`, the power hook list), `settings.js`
+  (quality `PRESETS`, sensitivity, sound), `view.js` (renderer/camera), `menus.js`, `input.js`, `net.js` (shared socket events),
+  `localplayer.js` (prediction tick, reconcile, shot feedback), `remotes.js` (interpolation), `camera.js`.
+  `public/js/powers/`: `warden.js`, `obliteration.js`, `clash.js`, `knight.js` (socket events, HUD meter, local/remote effects per power).
+  `window.__NAB` (set in `boot()`) is used by the test/trailer scripts — keep its shape.
+- `public/js/` also: `world.js` (arena, lights, reflections, fog),
   `nightcity.js` (megacity dressing), `textures.js` (procedural PBR), `effects.js`, `weapon.js` + `gunmodel.js` (VX-9)
   + `classgear.js` (knight greatsword / shotgun), `warden.js` (Rune-Warden body; rides the animated skeleton in `public/models/warden.glb`, built by `web/tools/convert-warden.mjs`), `avatar.js` (one look per class), `audio.js` (procedural HRTF audio), `post.js`,
   `hud.js`, `touch.js` (phone controls).
 - `NAB_DEBUG=1` enables a test-only `debug` socket event (teleport, grant shotgun, ult, `mon:'rise'`, `crash`). Never set it on Render.
-- Quality presets live in `public/js/main.js` (`PRESETS`); `?quality=low|medium|high|ultra` forces one.
+- Quality presets live in `public/js/game/settings.js` (`PRESETS`); `?quality=low|medium|high|ultra` forces one.
 - Verify visual changes with headless Chromium + SwiftShader (Playwright) and check for console errors at Low/Medium/High.
 - Hosting: `render.yaml` (root) deploys `web/` on Render's free plan; the server honours `PORT`.
 
